@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <title>Options :: Fingerprint Shield (personal)</title>
+    <link rel="stylesheet" type="text/css" href="index.css">
+  </head>
+  <body>
+    <h2>Exception list</h2>
+    <span class="desv">Hostnames (comma separated) where canvas reads are left untouched. Subdomains are included.</span>
+    <textarea id="list" rows="4" placeholder="e.g., figma.com, photopea.com"></textarea>
+    <div class="tools">
+      <div>
+        <input type="button" id="test" value="Test protection">
+        <input type="button" id="save" value="Save">
+        <input type="button" id="reset" value="Factory reset">
+        <span id="toast"></span>
+      </div>
+    </div>
+    <script src="index.js"></script>
+  </body>
+</html>

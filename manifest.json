@@ -1,0 +1,33 @@
+{
+  "manifest_version": 3,
+  "version": "1.0.0",
+  "name": "Fingerprint Shield (personal)",
+  "description": "Per-site, per-session canvas noise. Personal fork of canvas-fingerprint-blocker.",
+  "minimum_chrome_version": "120",
+  "icons": {
+    "16": "data/icons/16.png",
+    "32": "data/icons/32.png",
+    "48": "data/icons/48.png",
+    "64": "data/icons/64.png",
+    "128": "data/icons/128.png",
+    "256": "data/icons/256.png",
+    "512": "data/icons/512.png"
+  },
+  "permissions": [
+    "storage",
+    "contextMenus",
+    "notifications",
+    "userScripts"
+  ],
+  "host_permissions": [
+    "*://*/*"
+  ],
+  "background": {
+    "service_worker": "worker.js"
+  },
+  "action": {},
+  "options_ui": {
+    "open_in_tab": true,
+    "page": "data/options/index.html"
+  }
+}

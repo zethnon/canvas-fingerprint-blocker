@@ -54,10 +54,6 @@ label {
   display: block;
   margin-bottom: 5px;
 }
-.mode {
-  display: grid;
-  grid-template-columns: 1fr min-content;
-}
 .tools {
   display: flex;
   flex-direction: column;
