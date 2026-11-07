@@ -17,7 +17,7 @@ Clicking the extension icon toggles registration for future documents. Previousl
 installed hooks remain until those documents reload. Exceptions include subdomains;
 IPv4/localhost exceptions match exactly. Invalid/IPv6 rules are rejected visibly.
 
-## What changed from the ZIP baseline
+## What changed from the baseline
 
 - Native dimension and ImageData accessors close the demonstrated export fallback
   and page-defined getter paths; captured intrinsics resist simple page tampering.
