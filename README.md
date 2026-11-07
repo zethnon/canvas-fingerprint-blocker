@@ -69,13 +69,14 @@ IPv4/localhost exceptions match exactly. Invalid/IPv6 rules are rejected visibly
   is defence in depth. The included blank/nested/srcdoc Chromium checks pass,
   but this repo does not claim every realm race is solved.
 - **Startup navigations may briefly show an extension page.** A persistent
-  browser redirect holds non-exempt HTTP(S) main-frame requests until this
+  browser redirect holds non-exempt HTTP(S) GET main-frame requests until this
   session's seeded registration is installed. A higher-priority session-only
   allow rule releases them. Chrome clears that allow on browser restart.
   The extension page opens the destination after setup; unavailable permissions
   keep it on the setup page instead of silently continuing. Disabling protection
   removes the navigation hold. This requires declarativeNetRequestWithHostAccess.
-  HTTP cache, service-worker responses and history restoration are not all the
+  POST/form submissions are never redirected, so those startup responses are not
+  covered by this hold. HTTP cache, service-worker responses and history restoration are not all the
   same network path: bypasses of the browser request-rule engine and already
   running documents remain outside this safeguard's guarantee.
 - **Colour conversion matters.** Canvas exports use an sRGB 8-bit copy. Wide gamut,

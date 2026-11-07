@@ -53,7 +53,7 @@ async function removeGuard() {
   if (scripts.length) await chrome.scripting.unregisterContentScripts({ids: [GUARD_ID]});
 }
 async function armStartupGate(hosts) {
-  const condition = {regexFilter: '^https?://.*', resourceTypes: ['main_frame']};
+  const condition = {regexFilter: '^https?://.*', resourceTypes: ['main_frame'], requestMethods: ['get']};
   if (hosts.length) condition.excludedRequestDomains = hosts;
   await chrome.declarativeNetRequest.updateDynamicRules({
     removeRuleIds: [STARTUP_GATE_ID],
@@ -69,7 +69,7 @@ async function releaseStartupGate() {
   await chrome.declarativeNetRequest.updateSessionRules({
     removeRuleIds: [STARTUP_ALLOW_ID],
     addRules: [{id: STARTUP_ALLOW_ID, priority: 100, action: {type: 'allow'},
-      condition: {regexFilter: '^https?://.*', resourceTypes: ['main_frame']}}]
+      condition: {regexFilter: '^https?://.*', resourceTypes: ['main_frame'], requestMethods: ['get']}}]
   });
 }
 async function closeStartupGate() {

@@ -71,6 +71,7 @@ test('startup navigation redirect persists but its higher-priority release is se
  assert.equal(gate.action.type,'redirect');assert.equal(allow.action.type,'allow');assert.ok(allow.priority>gate.priority);
  assert.equal(gate.action.redirect.regexSubstitution,'chrome-extension://test/startup.html?target=\\0');
  assert.deepEqual(Array.from(gate.condition.resourceTypes),['main_frame']);
+ assert.deepEqual(Array.from(gate.condition.requestMethods),['get']);
  assert.ok(w.calls.indexOf('scripts.register:fp-main')<w.calls.indexOf('session.rules'));
 });
 test('permission failure retains startup hold and never releases navigation',async()=>{

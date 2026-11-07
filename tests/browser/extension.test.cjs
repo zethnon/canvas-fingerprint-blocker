@@ -28,6 +28,11 @@ async function read(page){return page.evaluate(()=>{const c=sample();return {dat
 
 test('unpacked extension integration', {timeout:120000}, async t=>{
  const server=http.createServer((req,res)=>{
+  if(req.url==='/post-check'){
+   let body='';req.on('data',chunk=>body+=chunk);req.on('end',()=>{
+    res.setHeader('Content-Type','text/html');res.end('<!doctype html><script>'+draw+';globalThis.postResult='+JSON.stringify({method:req.method,body})+'</script>');
+   });return;
+  }
   if(req.url==='/policy-worker.js'){
    res.setHeader('Content-Type','text/javascript');res.setHeader('Content-Security-Policy',"script-src 'none'");
    res.end(`let blocked=false;try{importScripts('/helper.js')}catch(e){blocked=true}postMessage({blocked,path:location.pathname});`);return;
@@ -156,6 +161,15 @@ test('unpacked extension integration', {timeout:120000}, async t=>{
   assert.equal(page.url(),target);assert.ok((await read(page)).url.startsWith('data:image/png'));
   const rules=await worker.evaluate(async()=>({dynamic:await chrome.declarativeNetRequest.getDynamicRules(),session:await chrome.declarativeNetRequest.getSessionRules()}));
   assert.ok(rules.dynamic.some(r=>r.id===41001));assert.ok(rules.session.some(r=>r.id===41002));
+ });
+ await t.test('startup hold never redirects or converts a POST submission',async()=>{
+  await worker.evaluate(()=>{currentSignature=undefined;return chrome.declarativeNetRequest.updateSessionRules({removeRuleIds:[41002]})});
+  const loaded=page.waitForNavigation({waitUntil:'load'});
+  await page.evaluate(()=>{const f=document.createElement('form');f.method='post';f.action='/post-check';const input=document.createElement('input');input.name='payload';input.value='a&b #c';f.append(input);document.body.append(f);f.submit()});
+  await loaded;
+  assert.equal(new URL(page.url()).pathname,'/post-check');
+  assert.deepEqual(await page.evaluate(()=>postResult),{method:'POST',body:'payload=a%26b+%23c'});
+  await worker.evaluate(()=>{currentSignature=undefined;return sync()});
  });
  const paint=`const c=new OffscreenCanvas(100,20);const x=c.getContext('2d');for(let i=0;i<100;i++){x.fillStyle='rgb('+((i*19)%256)+','+((i*37)%256)+','+((i*53)%256)+')';x.fillRect(i,0,1,20)}return [...x.getImageData(0,0,100,20).data];`;
  for(const type of ['classic','module']){

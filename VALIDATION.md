@@ -74,12 +74,12 @@ all iframe insertion/navigation races, or worker coverage.
 - A first attempt using a non-persistent MAIN-world marker failed in real Chromium
   because userScripts ran before dynamic content scripts. That implementation was
   removed rather than weakening its authentication or accepting page events.
-- The replacement uses browser request rules: a persistent main-frame redirect
+- The replacement uses browser request rules: a persistent GET main-frame redirect
   to an extension-origin setup page, overridden only by a session rule installed
   after fresh seeded registration. The setup page waits for registration and
   resumes the original HTTP(S) destination. No seed crosses the page bridge.
 - The request gate is a startup safeguard for browser-rule-managed navigations;
-  it cannot cover documents already executing, navigations that bypass DNR (such
+  it deliberately leaves POST/form navigations untouched and cannot cover documents already executing, navigations that bypass DNR (such
   as some service-worker/cache/history paths), disabled extensions or absent
   injection. Those limitations must remain explicit even if happy-path CI passes.
 - Worker support is deliberately limited to tracked dedicated Blob workers.
