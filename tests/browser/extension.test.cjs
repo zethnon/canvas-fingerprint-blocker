@@ -56,13 +56,11 @@ test('unpacked extension integration', {timeout:120000}, async t=>{
  await toggle.waitFor({state:'visible',timeout:10000});
  if(await toggle.getAttribute('aria-pressed')!=='true')await toggle.click();
  await settings.close();
- // Chrome caches an unavailable userScripts namespace in an existing worker.
- // Reload the extension after granting permission, as the onboarding says.
- const nextWorker=context.waitForEvent('serviceworker',{timeout:15000});
- await worker.evaluate(()=>chrome.runtime.reload()).catch(()=>{});
- worker=await nextWorker;
- // Verify onboarding using the actual extension options page.
-
+ // Chrome caches an unavailable namespace in an existing worker. A full
+ // browser restart after granting permission gives the integration fixture a
+ // fresh worker context without assuming runtime.reload eagerly starts one.
+ await context.close();context=null;
+ worker=await launch();
  const options=await context.newPage();
  await options.goto(`chrome-extension://${id}/data/options/index.html`);
  await options.getByRole('button',{name:'Recheck permission and registration'}).click();
