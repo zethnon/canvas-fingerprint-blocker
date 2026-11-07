@@ -22,8 +22,8 @@ IPv4/localhost exceptions match exactly. Invalid/IPv6 rules are rejected visibly
 - Native dimension and ImageData accessors close the demonstrated export fallback
   and page-defined getter paths; captured intrinsics resist simple page tampering.
 - Copy failures propagate; exports never silently retry against clean source data.
-- Readback replaces each visible RGB pixel's low two bits with a keyed projection
-  of its upper bits. The maximum 8-bit channel change is 3, alpha is preserved,
+- Readback projects each visible RGB pixel into a keyed representative of a
+  four-value colour bucket, with boundaries shifted per site. The maximum 8-bit channel change is 3, alpha is preserved,
   and transparent pixels remain untouched.
 - Equal pixels receive equal transformations independent of crop dimensions or
   positions. Repeated read/write loops are idempotent. The previously demonstrated
@@ -45,9 +45,9 @@ IPv4/localhost exceptions match exactly. Invalid/IPv6 rules are rejected visibly
 
 ## Important limits — do not interpret green tests as anonymity
 
-- **High colour bits remain exposed.** A tracker can discard low bits and use the
-  remaining image, probe transformations, combine other signals, or use other
-  APIs. Passing the crop test does not establish resistance to all pixel recovery
+- **Coarse image information remains exposed.** Site-shifted boundaries resist
+  simply masking low bits, but a tracker can still use coarser image features,
+  probe transformations, combine other signals, or use other APIs. Passing the crop test does not establish resistance to all pixel recovery
   or fingerprint extraction attacks. The noise model is a limited perturbation.
 - **Worker canvases are not covered.** Dedicated/shared/service worker realms do
   not receive page content scripts. Their clean APIs remain a bypass route.

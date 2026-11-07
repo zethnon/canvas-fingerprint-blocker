@@ -79,3 +79,9 @@ test('fallback guard leaves HTTP documents alone',()=>{
  const h=harness({protected:false});h.run(fs.readFileSync(path.join(root,'data/inject/fallback-guard.js'),'utf8'));
  assert.equal(h.run(`makeCanvas().toDataURL()===raw(makeCanvas()).join(',')`),true);
 });
+
+test('dropping low colour bits does not remove all site-dependent variation',()=>{
+ const one=read(harness()).map((v,i)=>i%4===3?v:v&252);
+ const two=read(harness({origin:'https://two.test'})).map((v,i)=>i%4===3?v:v&252);
+ assert.notDeepEqual(one,two);
+});

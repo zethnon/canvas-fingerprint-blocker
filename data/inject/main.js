@@ -31,10 +31,17 @@ function installCanvasProtection(config) {
     keys[i & 3] = imul(keys[i & 3] ^ topOrigin.charCodeAt(i), 16777619) >>> 0;
   }
 
-  // Keyed XTEA permutation over each 6-bit RGB bucket. Low two bits are
-  // replaced, not added: crops agree, read/write loops are idempotent, and
-  // majority voting across rectangles cannot recover the discarded bits.
-  // Upper bits remain visible: this is perturbation, NOT full anonymisation.
+  // Site-dependent quantisation boundaries prevent simply dropping two low
+  // bits from removing all site variation. Each shifted four-value bucket
+  // projects to one keyed representative: crops agree and read/write loops
+  // are idempotent. Coarse colour information remains; this is not anonymity.
+  const offsets = [keys[0] & 3, keys[1] & 3, keys[2] & 3];
+  const representative = (bucket, offset, bits) => {
+    const low = max(0, bucket * 4 - offset);
+    const high = min(255, bucket * 4 + 3 - offset);
+    return low + bits % (high - low + 1);
+  };
+  // Keyed XTEA permutation over the three shifted RGB bucket indices.
   const bucketBits = bucket => {
     const cached = apply(mapGet, cache, [bucket]);
     if (cached !== undefined) return cached;
@@ -64,10 +71,13 @@ function installCanvasProtection(config) {
       const r = max(0, min(255, round(data[i] * scale)));
       const g = max(0, min(255, round(data[i + 1] * scale)));
       const b = max(0, min(255, round(data[i + 2] * scale)));
-      const bits = bucketBits((r >>> 2) | ((g >>> 2) << 6) | ((b >>> 2) << 12));
-      data[i] = ((r & 252) | (bits & 3)) / scale;
-      data[i + 1] = ((g & 252) | ((bits >>> 2) & 3)) / scale;
-      data[i + 2] = ((b & 252) | ((bits >>> 4) & 3)) / scale;
+      const rb = (r + offsets[0]) >>> 2;
+      const gb = (g + offsets[1]) >>> 2;
+      const bb = (b + offsets[2]) >>> 2;
+      const bits = bucketBits(rb | (gb << 7) | (bb << 14));
+      data[i] = representative(rb, offsets[0], bits & 3) / scale;
+      data[i + 1] = representative(gb, offsets[1], (bits >>> 2) & 3) / scale;
+      data[i + 2] = representative(bb, offsets[2], (bits >>> 4) & 3) / scale;
     }
     return data;
   };

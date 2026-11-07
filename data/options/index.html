@@ -26,7 +26,7 @@
   <p>Canvas and main-thread OffscreenCanvas readbacks are perturbed. Opaque/fallback
     frames may block reads instead. Worker canvases, WebGL readPixels, audio and fonts
     are not covered. This does not provide anonymity or prevent cookie/IP tracking.</p>
-  <p>Low two colour bits are replaced. Image-processing and HDR workflows may need an exception.</p>
+  <p>Colours are projected into site-shifted four-value buckets. Image-processing and HDR workflows may need an exception.</p>
   <script src="../hosts.js"></script>
   <script src="index.js"></script>
 </body>
