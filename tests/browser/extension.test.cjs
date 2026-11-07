@@ -28,6 +28,14 @@ async function read(page){return page.evaluate(()=>{const c=sample();return {dat
 
 test('unpacked extension integration', {timeout:360000}, async t=>{
  const server=http.createServer((req,res)=>{
+  if(req.url==='/audit-url-worker.js'){
+   res.setHeader('Content-Type','text/javascript');res.end(`const c=new OffscreenCanvas(1,1);const x=c.getContext('2d');x.fillStyle='rgb(123,45,67)';x.fillRect(0,0,1,1);postMessage([...x.getImageData(0,0,1,1).data]);`);return;
+  }
+  if(req.url==='/audit-sw.js'){
+   const html='<!doctype html><script>'+draw+';window.auditCached=true;</script>';
+   res.setHeader('Content-Type','text/javascript');
+   res.end(`addEventListener('install',e=>e.waitUntil(caches.open('fps-audit').then(c=>c.put('/audit-sw-page',new Response(${JSON.stringify(html)},{headers:{'Content-Type':'text/html'}}))).then(()=>skipWaiting())));addEventListener('activate',e=>e.waitUntil(clients.claim()));addEventListener('fetch',e=>{if(new URL(e.request.url).pathname==='/audit-sw-page')e.respondWith(caches.match('/audit-sw-page'))});`);return;
+  }
   if(req.url==='/post-check'){
    let body='';req.on('data',chunk=>body+=chunk);req.on('end',()=>{
     res.setHeader('Content-Type','text/html');res.end('<!doctype html><script>'+draw+';globalThis.postResult='+JSON.stringify({method:req.method,body})+'</script>');
@@ -217,6 +225,17 @@ test('unpacked extension integration', {timeout:360000}, async t=>{
   assert.equal(values.length,2);for(const value of values){assert.ok(value==='SecurityError'||value.startsWith('data:image/png'));assert.notEqual(value,baseline.url)}
  });
 
+
+ await t.test('image upload, crop and PNG export round-trip works',async()=>{
+  const result=await page.evaluate(async()=>{
+   const original=sample(),blob=await new Promise(r=>original.toBlob(r));
+   const input=document.createElement('input');input.type='file';const dt=new DataTransfer();dt.items.add(new File([blob],'image.png',{type:'image/png'}));input.files=dt.files;
+   const image=new Image(),url=URL.createObjectURL(input.files[0]);image.src=url;await image.decode();
+   const crop=document.createElement('canvas');crop.width=50;crop.height=40;crop.getContext('2d').drawImage(image,10,10,50,40,0,0,50,40);
+   const exported=await new Promise(r=>crop.toBlob(r));URL.revokeObjectURL(url);
+   return {file:input.files[0].name,width:crop.width,height:crop.height,type:exported.type,nonempty:exported.size>0};
+  });assert.deepEqual(result,{file:'image.png',width:50,height:40,type:'image/png',nonempty:true});
+ });
  const beforeRestart=await read(page);
  await context.close();context=null;
  worker=await launch();await worker.evaluate(()=>sync());await waitStatus(worker,'ready');

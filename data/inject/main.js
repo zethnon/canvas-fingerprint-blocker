@@ -9,8 +9,10 @@ function createCanvasTransform(seed, topOrigin) {
   const {max, min, round} = Math;
   const mapGet = Map.prototype.get;
   const mapSet = Map.prototype.set;
-  const mapClear = Map.prototype.clear;
-  const cache = new Map();
+  const mapForEach = Map.prototype.forEach;
+  const Table = Uint32Array;
+  let cache = new Map();
+  let table = null;
   let cacheSize = 0;
   const keys = seed.match(/.{8}/g).map(s => parseInt(s, 16) >>> 0);
   for (let i = 0; i < topOrigin.length; i++) {
@@ -28,20 +30,35 @@ function createCanvasTransform(seed, topOrigin) {
     return low + bits % (high - low + 1);
   };
   // Keyed XTEA permutation over the three shifted RGB bucket indices.
-  const bucketBits = bucket => {
-    const cached = apply(mapGet, cache, [bucket]);
-    if (cached !== undefined) return cached;
+  const bucketColor = (rb, gb, bb) => {
+    // Small canvases retain a small Map. High-colour images promote once to
+    // a dense, bounded 65^3 table (~1.05 MiB), avoiding the old clear/recompute
+    // cycle. RGB+1 makes zero an empty entry even for black output.
+    const bucket = rb | (gb << 7) | (bb << 14);
+    const index = rb + gb * 65 + bb * 4225;
+    const cached = table ? table[index] : apply(mapGet, cache, [bucket]);
+    if (cached) return cached - 1;
     let a = bucket >>> 0, b = 0x46505331, sum = 0;
     for (let round = 0; round < 32; round++) {
       a = (a + ((((b << 4) ^ (b >>> 5)) + b) ^ (sum + keys[sum & 3]))) >>> 0;
       sum = (sum + 0x9e3779b9) >>> 0;
       b = (b + ((((a << 4) ^ (a >>> 5)) + a) ^ (sum + keys[(sum >>> 11) & 3]))) >>> 0;
     }
-    const value = (a ^ b) & 63;
-    if (cacheSize >= 4096) { apply(mapClear, cache, []); cacheSize = 0; }
-    cacheSize++;
-    apply(mapSet, cache, [bucket, value]);
-    return value;
+    const bits = (a ^ b) & 63;
+    const color = representative(rb, offsets[0], bits & 3)
+      | (representative(gb, offsets[1], (bits >>> 2) & 3) << 8)
+      | (representative(bb, offsets[2], (bits >>> 4) & 3) << 16);
+    const stored = color + 1;
+    if (!table && cacheSize >= 4096) {
+      table = new Table(65 * 65 * 65);
+      apply(mapForEach, cache, [(value, key) => {
+        table[(key & 127) + ((key >>> 7) & 127) * 65 + (key >>> 14) * 4225] = value;
+      }]);
+      cache = null;
+    }
+    if (table) table[index] = stored;
+    else { apply(mapSet, cache, [bucket, stored]); cacheSize++; }
+    return color;
   };
   const transform = data => {
     const tag = apply(typedArrayTag, data, []);
@@ -54,16 +71,15 @@ function createCanvasTransform(seed, topOrigin) {
       if (data[i + 3] === 0) continue;
       // Float formats use an explicit 8-bit privacy projection. Alpha stays
       // untouched; HDR fidelity is not preserved (documented in README).
-      const r = max(0, min(255, round(data[i] * scale)));
-      const g = max(0, min(255, round(data[i + 1] * scale)));
-      const b = max(0, min(255, round(data[i + 2] * scale)));
-      const rb = (r + offsets[0]) >>> 2;
-      const gb = (g + offsets[1]) >>> 2;
-      const bb = (b + offsets[2]) >>> 2;
-      const bits = bucketBits(rb | (gb << 7) | (bb << 14));
-      data[i] = representative(rb, offsets[0], bits & 3) / scale;
-      data[i + 1] = representative(gb, offsets[1], (bits >>> 2) & 3) / scale;
-      data[i + 2] = representative(bb, offsets[2], (bits >>> 4) & 3) / scale;
+      // Uint8ClampedArray already guarantees byte-range integers. Keep
+      // clamping/rounding for float16; avoid it on the common byte path.
+      const r = u8 ? data[i] : max(0, min(255, round(data[i] * scale)));
+      const g = u8 ? data[i + 1] : max(0, min(255, round(data[i + 1] * scale)));
+      const b = u8 ? data[i + 2] : max(0, min(255, round(data[i + 2] * scale)));
+      const color = bucketColor((r + offsets[0]) >>> 2, (g + offsets[1]) >>> 2, (b + offsets[2]) >>> 2);
+      data[i] = (color & 255) / scale;
+      data[i + 1] = ((color >>> 8) & 255) / scale;
+      data[i + 2] = (color >>> 16) / scale;
     }
     return data;
   };
@@ -166,6 +182,9 @@ function installCanvasProtection(config) {
   const getWindow = getDescriptor(frameProto, 'contentWindow')?.get;
   const queryAll = Element.prototype.querySelectorAll;
   const queryFragment = DocumentFragment.prototype.querySelectorAll;
+  const getNodeType = getDescriptor(Node.prototype, 'nodeType').get;
+  const getLocalName = getDescriptor(Element.prototype, 'localName').get;
+  const hasChildren = Node.prototype.hasChildNodes;
   const blockedWorkers = new WeakSet();
   const patchFrame = frame => {
     try {
@@ -210,10 +229,17 @@ function installCanvasProtection(config) {
   };
   const findFrames = node => {
     if (!node || typeof node !== 'object') return [];
-    // Native brand checks also recognise elements from child realms.
-    try { apply(getWindow, node, []); return [node]; } catch (_) {}
-    try { return apply(queryAll, node, ['iframe']); } catch (_) {}
-    try { return apply(queryFragment, node, ['iframe']); } catch (_) {}
+    // Captured native getters work across realms. Ordinary leaf nodes avoid
+    // exceptions and selector scans on every append (the old DOM hot path).
+    try {
+      const type = apply(getNodeType, node, []);
+      if (type === 1) {
+        if (apply(getLocalName, node, []) === 'iframe') return [node];
+        return apply(hasChildren, node, []) ? apply(queryAll, node, ['iframe']) : [];
+      }
+      if (type === 11) return apply(hasChildren, node, []) ? apply(queryFragment, node, ['iframe']) : [];
+    }
+    catch (_) { /* Non-Node objects are rejected by the native insertion call. */ }
     return [];
   };
   const patchTree = node => { for (const frame of findFrames(node)) patchFrame(frame); };

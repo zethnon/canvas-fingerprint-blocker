@@ -45,10 +45,18 @@ async function runAudit({context,worker,page,url,setPrefs}){
     const f=document.createDocumentFragment();for(let i=0;i<2000;i++){const d=document.createElement('div');d.textContent='row '+i;f.appendChild(d)}host.appendChild(f);host.remove();samples.push(performance.now()-start);
    }return samples.slice(1);
   });report.benchmarks.push({variant,api:'dom-2000',medianMs:median(dom),minMs:Math.min(...dom),maxMs:Math.max(...dom)});
+  const frames=await page.evaluate(async()=>{
+   const c=document.createElement('canvas');c.width=1024;c.height=768;document.body.appendChild(c);const x=c.getContext('2d'),times=[];let last;
+   for(let i=0;i<35;i++){const now=await new Promise(requestAnimationFrame);if(last!==undefined)times.push(now-last);last=now;x.clearRect(0,0,c.width,c.height);for(let j=0;j<100;j++)x.fillRect((i+j*19)%1000,(j*31)%740,20,20)}c.remove();return times.slice(4);
+  });report.benchmarks.push({variant,api:'render-frame-interval',medianMs:median(frames),maxMs:Math.max(...frames)});
+  const starts=await page.evaluate(async()=>{
+   const times=[];for(let i=0;i<6;i++){const u=URL.createObjectURL(new Blob(["postMessage('ready')"],{type:'text/javascript'}));const start=performance.now();const w=new Worker(u);URL.revokeObjectURL(u);await new Promise((resolve,reject)=>{w.onmessage=resolve;w.onerror=reject});times.push(performance.now()-start);w.terminate()}return times.slice(1);
+  });report.benchmarks.push({variant,api:'blob-worker-start',medianMs:median(starts),minMs:Math.min(...starts),maxMs:Math.max(...starts)});
+
  }
  // External sites are diagnostic snapshots, never hard test pass/fail gates.
  // Each is visited once off and once on; failed/unready checks stay explicit.
- for(const enabled of [false,true]){
+ if(process.env.CANVAS_EXTERNAL!=='0')for(const enabled of [false,true]){
   await mode(enabled?'candidate':'off');
   for(const target of ['https://browserleaks.com/canvas','https://abrahamjuliot.github.io/creepjs/']){
    const external=await context.newPage(),errors=[];external.on('pageerror',e=>{if(errors.length<8)errors.push(e.message.slice(0,250))});
@@ -60,7 +68,7 @@ async function runAudit({context,worker,page,url,setPrefs}){
      result=await external.evaluate(()=>{
       const f=window.Fingerprint,l=f.lies||{};
       const records=l.data||l.lies||{};
-      return {sections:Object.keys(f),liesKeys:Object.keys(l),totalLies:l.totalLies??null,lieAPIs:Object.keys(records).slice(0,60),canvasLied:f.canvas2d?.lied??null,canvasKeys:Object.keys(f.canvas2d||{}),workerKeys:Object.keys(f.workerScope||{})};
+      return {sections:Object.keys(f),liesKeys:Object.keys(l),totalLies:l.totalLies??null,lieAPIs:Object.keys(records).slice(0,60),lieDetails:records,canvasLied:f.canvas2d?.lied??null,canvasKeys:Object.keys(f.canvas2d||{}),workerKeys:Object.keys(f.workerScope||{})};
      });
     }else{
      await external.waitForFunction(()=>/Signature|Fingerprint/i.test(document.body.innerText),null,{timeout:20000});
@@ -72,11 +80,33 @@ async function runAudit({context,worker,page,url,setPrefs}){
   }
  }
  await mode('candidate');
+ await page.goto(url);
+ report.coverage={};
+ try{
+  const raw=await page.evaluate(()=>new Promise((resolve,reject)=>{const w=new Worker('/audit-url-worker.js');const t=setTimeout(()=>{w.terminate();reject(Error('URL worker timeout'))},10000);w.onmessage=e=>{clearTimeout(t);w.terminate();resolve(e.data)};w.onerror=reject}));
+  report.coverage.urlWorker={state:'observed',returnsOriginalPixel:JSON.stringify(raw)==='[123,45,67,255]',covered:false};
+ }catch(error){report.coverage.urlWorker={state:'incomplete',error:error.message}}
+ try{
+  await page.evaluate(async()=>{await navigator.serviceWorker.register('/audit-sw.js');await navigator.serviceWorker.ready});
+  await page.reload();await page.waitForFunction(()=>!!navigator.serviceWorker.controller);
+  const previous=await page.evaluate(()=>sample().toDataURL());
+  await worker.evaluate(async()=>{await chrome.storage.session.remove('seed');currentSignature=undefined;await chrome.declarativeNetRequest.updateSessionRules({removeRuleIds:[41002]})});
+  let broker=false;const listener=f=>{if(f===page.mainFrame()&&f.url().includes('/startup.html?target='))broker=true};page.on('framenavigated',listener);
+  await page.goto(new URL('/audit-sw-page',url).href);await page.waitForFunction(()=>window.auditCached===true);
+  const current=await page.evaluate(()=>sample().toDataURL());page.off('framenavigated',listener);
+  report.coverage.cacheStorageStartup={state:'observed',brokerVisited:broker,previousMappingObserved:previous===current};
+ }catch(error){report.coverage.cacheStorageStartup={state:'incomplete',error:error.message.slice(0,500)}}
+ finally{
+  await worker.evaluate(()=>{currentSignature=undefined;return sync()});
+  await page.goto(url);
+  await page.evaluate(async()=>{for(const r of await navigator.serviceWorker.getRegistrations())await r.unregister();await caches.delete('fps-audit')}).catch(()=>{});
+ }
  await fs.mkdir('test-results',{recursive:true});
  await fs.writeFile('test-results/audit.json',JSON.stringify(report,null,2));
  // Small comparable summaries in CI logs; full numeric report is an artifact.
- for(const row of report.benchmarks.filter(r=>(r.width===1024&&r.height===1024)||r.api==='dom-2000'))console.log('CANVAS_BENCH '+JSON.stringify(row));
+ for(const row of report.benchmarks.filter(r=>(r.width===1024&&r.height===1024)||['dom-2000','render-frame-interval','blob-worker-start'].includes(r.api)))console.log('CANVAS_BENCH '+JSON.stringify(row));
  console.log('CANVAS_EXTERNAL '+JSON.stringify(report.external));
+ console.log('CANVAS_COVERAGE '+JSON.stringify(report.coverage));
  return report;
 }
 module.exports={runAudit};

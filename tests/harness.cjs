@@ -9,8 +9,8 @@ class ImageData {
   constructor(data, width, height) { images.set(this, data); this.width=width;this.height=height; }
   get data() { if (!images.has(this)) throw TypeError('Illegal invocation'); return images.get(this); }
 }
-class Node { get baseURI(){return ORIGIN+'/'} appendChild(node) { return node; } insertBefore(node) { return node; } replaceChild(node) { return node; } }
-class Element extends Node { querySelectorAll() { return []; } append() {} prepend() {} replaceChildren() {} insertAdjacentElement() {} }
+class Node { get nodeType(){return 1} hasChildNodes(){return false} get baseURI(){return ORIGIN+'/'} appendChild(node) { return node; } insertBefore(node) { return node; } replaceChild(node) { return node; } }
+class Element extends Node { get localName(){return 'div'} querySelectorAll() { return []; } append() {} prepend() {} replaceChildren() {} insertAdjacentElement() {} }
 class HTMLCanvasElement extends Element {
   constructor(w=100,h=88) { super();widths.set(this,w); heights.set(this,h);buffers.set(this,new Uint8ClampedArray(w*h*4)); }
   get width() { if (!widths.has(this)) throw TypeError('Illegal invocation'); return widths.get(this); }
@@ -48,9 +48,9 @@ class OffscreenCanvasRenderingContext2D extends CanvasRenderingContext2D {
   putImageData(...args){return super.putImageData(...args)}
   drawImage(...args){return super.drawImage(...args)}
 }
-class DocumentFragment extends Element { querySelectorAll(){return [];} }
+class DocumentFragment extends Element { get nodeType(){return 11} querySelectorAll(){return [];} }
 class Document { createElement(tag) { return tag==='canvas'?new HTMLCanvasElement():new Element(); } }
-class HTMLIFrameElement extends Element { get contentWindow(){if(!(this instanceof HTMLIFrameElement))throw TypeError('Illegal invocation');return this.child} get contentDocument(){return this.child?.document} }
+class HTMLIFrameElement extends Element { get localName(){return 'iframe'} get contentWindow(){if(!(this instanceof HTMLIFrameElement))throw TypeError('Illegal invocation');return this.child} get contentDocument(){return this.child?.document} }
 class MutationObserver { observe() {} }
 Object.assign(globalThis,{OffscreenCanvas,OffscreenCanvasRenderingContext2D});
 const document = new Document();
