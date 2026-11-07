@@ -51,10 +51,11 @@ IPv4/localhost exceptions match exactly. Invalid/IPv6 rules are rejected visibly
   or fingerprint extraction attacks. The noise model is a limited perturbation.
 - **Worker canvases are not covered.** Dedicated/shared/service worker realms do
   not receive page content scripts. Their clean APIs remain a bypass route.
-- **Iframe timing and browser compatibility need real-browser validation.**
+- **Iframe timing and browser compatibility need broader validation.**
   Synchronous initial blank documents, parser-created frames, opaque/sandboxed
   contexts, navigation and page tampering have complex timing. The fallback guard
-  is defence in depth; this repo does not claim every realm race is solved.
+  is defence in depth. The included blank/nested/srcdoc Chromium checks pass,
+  but this repo does not claim every realm race is solved.
 - **Startup seed rollover is not atomic.** Chrome persists userScript code across
   browser restarts. A restored page can run the previous seed before the worker
   updates registration. Re-registering affects future documents only.
