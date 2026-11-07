@@ -26,7 +26,7 @@ async function setPrefs(worker,values){
 }
 async function read(page){return page.evaluate(()=>{const c=sample();return {data:[...c.getContext('2d').getImageData(0,0,100,88).data],url:c.toDataURL()}})}
 
-test('unpacked extension integration', {timeout:120000}, async t=>{
+test('unpacked extension integration', {timeout:360000}, async t=>{
  const server=http.createServer((req,res)=>{
   if(req.url==='/post-check'){
    let body='';req.on('data',chunk=>body+=chunk);req.on('end',()=>{
@@ -50,7 +50,7 @@ test('unpacked extension integration', {timeout:120000}, async t=>{
    ...(process.env.CHROMIUM_EXECUTABLE?{executablePath:process.env.CHROMIUM_EXECUTABLE}:{}),
    args:[`--disable-extensions-except=${extension}`,`--load-extension=${extension}`]
   });
-  return context.serviceWorkers()[0]||context.waitForEvent('serviceworker',{timeout:15000});
+  return context.serviceWorkers().find(w=>w.url().startsWith('chrome-extension://'))||context.waitForEvent('serviceworker',{predicate:w=>w.url().startsWith('chrome-extension://'),timeout:15000});
  }
  t.after(async()=>{
   if(context)await context.close();
@@ -222,4 +222,5 @@ test('unpacked extension integration', {timeout:120000}, async t=>{
  worker=await launch();await worker.evaluate(()=>sync());await waitStatus(worker,'ready');
  const restarted=await context.newPage();await restarted.goto(`http://localhost:${port}`);
  await t.test('new browser session changes output after registration',async()=>assert.notDeepEqual((await read(restarted)).data,beforeRestart.data));
+ if(process.env.CANVAS_AUDIT==='1')await require('./audit.cjs').runAudit({context,worker,page:restarted,url:`http://localhost:${port}`,setPrefs});
 });
