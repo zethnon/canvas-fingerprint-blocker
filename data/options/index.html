@@ -1,22 +1,33 @@
 <!DOCTYPE html>
-<html>
-  <head>
-    <meta charset="UTF-8" />
-    <title>Options :: Fingerprint Shield (personal)</title>
-    <link rel="stylesheet" type="text/css" href="index.css">
-  </head>
-  <body>
-    <h2>Exception list</h2>
-    <span class="desv">Hostnames (comma separated) where canvas reads are left untouched. Subdomains are included.</span>
-    <textarea id="list" rows="4" placeholder="e.g., figma.com, photopea.com"></textarea>
-    <div class="tools">
-      <div>
-        <input type="button" id="test" value="Test protection">
-        <input type="button" id="save" value="Save">
-        <input type="button" id="reset" value="Factory reset">
-        <span id="toast"></span>
-      </div>
-    </div>
-    <script src="index.js"></script>
-  </body>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Fingerprint Shield — Canvas settings</title>
+  <link rel="stylesheet" href="index.css">
+</head>
+<body>
+  <h1>Canvas protection</h1>
+  <p id="status" role="status">Checking registration…</p>
+  <p><strong>Reload open tabs after installing, changing settings or granting permission.</strong>
+    The R badge is a reload reminder, not a count of trackers or proof a page is protected.</p>
+  <button id="recheck">Recheck permission and registration</button>
+  <h2>Exceptions</h2>
+  <p>Comma-separated hostnames. Subdomains are included; IP addresses match exactly.
+    Reload affected tabs after saving. IPv6 exceptions are not supported.</p>
+  <label for="list">Allow unmodified canvas reads on:</label>
+  <textarea id="list" rows="4" placeholder="figma.com, photopea.com"></textarea>
+  <div class="tools"><div>
+    <button id="save">Save exceptions</button>
+    <button id="test">Open canvas test</button>
+    <button id="reset">Reset settings</button>
+  </div></div>
+  <p id="toast" role="status"></p>
+  <h2>Coverage</h2>
+  <p>Canvas and main-thread OffscreenCanvas readbacks are perturbed. Opaque/fallback
+    frames may block reads instead. Worker canvases, WebGL readPixels, audio and fonts
+    are not covered. This does not provide anonymity or prevent cookie/IP tracking.</p>
+  <p>Low two colour bits are replaced. Image-processing and HDR workflows may need an exception.</p>
+  <script src="../hosts.js"></script>
+  <script src="index.js"></script>
+</body>
 </html>

@@ -1,170 +1,220 @@
-/*
- * Runs in the page's MAIN world at document_start, before any page script.
- *
- * Noise model (replaces the old "shift ~100 grid pixels by a fixed amount"):
- * - seed = per-browser-session random value (from the worker) + hostname
- *   -> same site, same session: stable result (repeated reads match, so the
- *      noise can't be spotted by reading twice)
- *   -> different site or new session: different result (not linkable)
- * - the PRNG is also seeded by the canvas content, so different drawings get
- *   different noise patterns
- * - ±1 on one channel of ~1/8 of visible pixels; transparent pixels are
- *   skipped because changing them is lost anyway
- * - we never modify the page's canvas: exports go through a noisy copy, and
- *   getImageData noises only the returned buffer (no revert race, no flicker)
- */
-(() => {
+/* Bundled by worker.js inside one closure. Never publish the seed on window. */
+function installCanvasProtection(config) {
   'use strict';
-
-  const cfg = globalThis.__fpsCfg;
+  const apply = Reflect.apply;
+  const getDescriptor = Object.getOwnPropertyDescriptor;
+  const define = Object.defineProperty;
+  const NativeProxy = Proxy;
+  const imul = Math.imul;
+  const typedArrayTag = getDescriptor(Object.getPrototypeOf(Uint8Array.prototype), Symbol.toStringTag).get;
+  const imageData = getDescriptor(ImageData.prototype, 'data').get;
+  const dataLength = getDescriptor(Object.getPrototypeOf(Uint8Array.prototype), 'length').get;
+  const {max, min, round} = Math;
+  const mapGet = Map.prototype.get;
+  const mapSet = Map.prototype.set;
+  const mapClear = Map.prototype.clear;
+  const cache = new Map();
+  let cacheSize = 0;
+  const keys = config.seed.match(/.{8}/g).map(s => parseInt(s, 16) >>> 0);
+  // Partition third-party frames by the top-level origin, not just frame host.
+  let topOrigin = location.origin;
   try {
-    delete globalThis.__fpsCfg;
+    if (location.ancestorOrigins.length) {
+      topOrigin = location.ancestorOrigins[location.ancestorOrigins.length - 1];
+    }
+    else {
+      topOrigin = top.location.origin;
+    }
   }
-  catch (e) {}
-  if (!cfg || !cfg.seed) {
-    return;
+  catch (_) { /* Chromium ancestorOrigins normally supplies cross-origin roots. */ }
+  for (let i = 0; i < topOrigin.length; i++) {
+    keys[i & 3] = imul(keys[i & 3] ^ topOrigin.charCodeAt(i), 16777619) >>> 0;
   }
 
-  // Grab natives before page scripts can touch them.
-  const N = {
-    toDataURL: HTMLCanvasElement.prototype.toDataURL,
-    toBlob: HTMLCanvasElement.prototype.toBlob,
-    getContext: HTMLCanvasElement.prototype.getContext,
-    getImageData: CanvasRenderingContext2D.prototype.getImageData,
-    putImageData: CanvasRenderingContext2D.prototype.putImageData,
-    drawImage: CanvasRenderingContext2D.prototype.drawImage,
-    createElement: Document.prototype.createElement,
-    setWidth: Object.getOwnPropertyDescriptor(HTMLCanvasElement.prototype, 'width').set,
-    setHeight: Object.getOwnPropertyDescriptor(HTMLCanvasElement.prototype, 'height').set,
-    imul: Math.imul
+  // Keyed XTEA permutation over each 6-bit RGB bucket. Low two bits are
+  // replaced, not added: crops agree, read/write loops are idempotent, and
+  // majority voting across rectangles cannot recover the discarded bits.
+  // Upper bits remain visible: this is perturbation, NOT full anonymisation.
+  const bucketBits = bucket => {
+    const cached = apply(mapGet, cache, [bucket]);
+    if (cached !== undefined) return cached;
+    let a = bucket >>> 0, b = 0x46505331, sum = 0;
+    for (let round = 0; round < 32; round++) {
+      a = (a + ((((b << 4) ^ (b >>> 5)) + b) ^ (sum + keys[sum & 3]))) >>> 0;
+      sum = (sum + 0x9e3779b9) >>> 0;
+      b = (b + ((((a << 4) ^ (a >>> 5)) + a) ^ (sum + keys[(sum >>> 11) & 3]))) >>> 0;
+    }
+    const value = (a ^ b) & 63;
+    if (cacheSize >= 4096) { apply(mapClear, cache, []); cacheSize = 0; }
+    cacheSize++;
+    apply(mapSet, cache, [bucket, value]);
+    return value;
+  };
+  const transform = data => {
+    const tag = apply(typedArrayTag, data, []);
+    const u8 = tag === 'Uint8ClampedArray';
+    const f16 = tag === 'Float16Array';
+    if (!u8 && !f16) throw new DOMException('Unsupported canvas pixel format', 'NotSupportedError');
+    const scale = u8 ? 1 : 255;
+    const length = apply(dataLength, data, []);
+    for (let i = 0; i < length; i += 4) {
+      if (data[i + 3] === 0) continue;
+      // Float formats use an explicit 8-bit privacy projection. Alpha stays
+      // untouched; HDR fidelity is not preserved (documented in README).
+      const r = max(0, min(255, round(data[i] * scale)));
+      const g = max(0, min(255, round(data[i + 1] * scale)));
+      const b = max(0, min(255, round(data[i + 2] * scale)));
+      const bits = bucketBits((r >>> 2) | ((g >>> 2) << 6) | ((b >>> 2) << 12));
+      data[i] = ((r & 252) | (bits & 3)) / scale;
+      data[i + 1] = ((g & 252) | ((bits >>> 2) & 3)) / scale;
+      data[i + 2] = ((b & 252) | ((bits >>> 4) & 3)) / scale;
+    }
+    return data;
+  };
+
+  const canvasProto = HTMLCanvasElement.prototype;
+  const contextProto = CanvasRenderingContext2D.prototype;
+  const offscreenProto = globalThis.OffscreenCanvas?.prototype;
+  const offContextProto = globalThis.OffscreenCanvasRenderingContext2D?.prototype;
+  const native = {
+    get: contextProto.getImageData,
+    put: contextProto.putImageData,
+    draw: contextProto.drawImage,
+    context: canvasProto.getContext,
+    width: getDescriptor(canvasProto, 'width').get,
+    height: getDescriptor(canvasProto, 'height').get,
+    setWidth: getDescriptor(canvasProto, 'width').set,
+    setHeight: getDescriptor(canvasProto, 'height').set,
+    create: Document.prototype.createElement,
+    offWidth: offscreenProto && getDescriptor(offscreenProto, 'width').get,
+    offHeight: offscreenProto && getDescriptor(offscreenProto, 'height').get,
+    offContext: offscreenProto?.getContext,
+    offGet: offContextProto?.getImageData,
+    offPut: offContextProto?.putImageData,
+    offDraw: offContextProto?.drawImage,
+    Offscreen: globalThis.OffscreenCanvas,
+    SecurityError: DOMException
   };
   const doc = document;
-
-  const fnv = str => {
-    let h = 0x811c9dc5;
-    for (let i = 0; i < str.length; i += 1) {
-      h ^= str.charCodeAt(i);
-      h = N.imul(h, 0x01000193);
-    }
-    return h >>> 0;
+  const wrap = (proto, name, handler) => {
+    if (!proto || typeof proto[name] !== 'function') return;
+    const descriptor = getDescriptor(proto, name);
+    define(proto, name, {...descriptor, value: new NativeProxy(descriptor.value, {apply: handler})});
   };
-  const siteKey = fnv(cfg.seed + '|' + location.hostname);
-
-  // In-place noise on an RGBA buffer (Uint8ClampedArray).
-  const noisify = data => {
-    const len = data.length;
-    if (!len) {
-      return;
+  const copyCanvas = (canvas, offscreen) => {
+    // Use brand-checking native accessors, never page-defined own properties.
+    const width = apply(offscreen ? native.offWidth : native.width, canvas, []);
+    const height = apply(offscreen ? native.offHeight : native.height, canvas, []);
+    if (!width || !height) return null; // native empty-canvas behaviour
+    const copy = offscreen ? new native.Offscreen(width, height) : apply(native.create, doc, ['canvas']);
+    if (!offscreen) {
+      apply(native.setWidth, copy, [width]);
+      apply(native.setHeight, copy, [height]);
     }
-    // Content hash over up to ~4096 sampled pixels (keeps large canvases cheap).
-    const step = Math.max(4, Math.floor(len / 4 / 4096) * 4);
-    let h = siteKey;
-    for (let i = 0; i < len; i += step) {
-      h ^= data[i] | (data[i + 1] << 8) | (data[i + 2] << 16) | (data[i + 3] << 24);
-      h = N.imul(h, 0x01000193);
-    }
-    // mulberry32
-    let s = h | 0;
-    const rnd = () => {
-      s = (s + 0x6D2B79F5) | 0;
-      let t = N.imul(s ^ (s >>> 15), 1 | s);
-      t = (t + N.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-      return (t ^ (t >>> 14)) >>> 0;
-    };
-    for (let i = 0; i < len; i += 4) {
-      if (data[i + 3] === 0) {
-        continue;
-      }
-      const r = rnd();
-      if ((r & 7) !== 0) {
-        continue;
-      }
-      const ch = i + ((r >>> 3) % 3);
-      const v = data[ch] + ((r & 0x100) ? 1 : -1);
-      // Bounce off 0/255 instead of clamping, so the change is never a no-op.
-      data[ch] = v < 0 ? 1 : (v > 255 ? 254 : v);
-    }
-  };
-
-  // Noisy copy of any canvas (2d or WebGL). Throws SecurityError on tainted
-  // canvases, exactly like the real export would.
-  const noisyCopy = canvas => {
-    const {width, height} = canvas;
-    if (!width || !height) {
-      return null;
-    }
-    const copy = N.createElement.call(doc, 'canvas');
-    N.setWidth.call(copy, width);
-    N.setHeight.call(copy, height);
-    const ctx = N.getContext.call(copy, '2d', {willReadFrequently: true});
-    N.drawImage.call(ctx, canvas, 0, 0);
-    const img = N.getImageData.call(ctx, 0, 0, width, height);
-    noisify(img.data);
-    N.putImageData.call(ctx, img, 0, 0);
+    const ctx = apply(offscreen ? native.offContext : native.context, copy, ['2d', {willReadFrequently: true}]);
+    if (!ctx) throw new native.SecurityError('Unable to protect canvas export', 'NotSupportedError');
+    apply(offscreen ? native.offDraw : native.draw, ctx, [canvas, 0, 0]);
+    const image = apply(offscreen ? native.offGet : native.get, ctx, [0, 0, width, height]);
+    transform(apply(imageData, image, []));
+    apply(offscreen ? native.offPut : native.put, ctx, [image, 0, 0]);
     return copy;
   };
-
-  // Proxy keeps the original name/length. Step 5 will harden toString.
-  const wrap = (proto, name, apply) => {
-    proto[name] = new Proxy(proto[name], {apply});
+  const exportVia = offscreen => (target, self, args) => {
+    // No catch-and-export-original fallback. Taint, invalid receivers, and
+    // allocation failures propagate instead of exposing clean pixels.
+    const copy = copyCanvas(self, offscreen);
+    return apply(target, copy || self, args);
   };
-
-  const exportVia = (target, self, args) => {
-    let copy = null;
-    try {
-      copy = noisyCopy(self);
-    }
-    catch (e) {
-      // tainted / unusual canvas: fall through so the native call behaves (and throws) normally
-    }
-    return Reflect.apply(target, copy || self, args);
+  wrap(canvasProto, 'toDataURL', exportVia(false));
+  wrap(canvasProto, 'toBlob', exportVia(false));
+  const readback = (target, self, args) => {
+    const image = apply(target, self, args); // native validation/errors first
+    transform(apply(imageData, image, []));
+    return image;
   };
-
-  wrap(HTMLCanvasElement.prototype, 'toDataURL', exportVia);
-  wrap(HTMLCanvasElement.prototype, 'toBlob', exportVia);
-  wrap(CanvasRenderingContext2D.prototype, 'getImageData', (target, self, args) => {
-    const img = Reflect.apply(target, self, args);
-    try {
-      noisify(img.data);
-    }
-    catch (e) {}
-    return img;
+  wrap(contextProto, 'getImageData', readback);
+  wrap(offContextProto, 'getImageData', readback);
+  wrap(offscreenProto, 'convertToBlob', (target, self, args) => {
+    // convertToBlob is promise-based, including failures.
+    try { return exportVia(true)(target, self, args); }
+    catch (error) { return Promise.reject(error); }
   });
 
-  // Same-origin iframes (about:blank, srcdoc) don't get the user script, so a
-  // fingerprinter could create one and use its clean canvas prototypes.
-  // Patch the child window the moment the page grabs it.
-  const patched = new WeakSet();
-  const patchWindow = w => {
-    if (!w || w === window || patched.has(w)) {
-      return;
-    }
+  // Synchronously patch newly inserted same-origin fallback frames. The
+  // separate manifest guard also denies readback in srcdoc/data/blob frames
+  // that execute without the parent ever accessing their window.
+  const frameProto = HTMLIFrameElement.prototype;
+  const getWindow = getDescriptor(frameProto, 'contentWindow')?.get;
+  const queryAll = Element.prototype.querySelectorAll;
+  const queryFragment = DocumentFragment.prototype.querySelectorAll;
+  const patchFrame = frame => {
     try {
-      w.HTMLCanvasElement.prototype.toDataURL = HTMLCanvasElement.prototype.toDataURL;
-      w.HTMLCanvasElement.prototype.toBlob = HTMLCanvasElement.prototype.toBlob;
-      w.CanvasRenderingContext2D.prototype.getImageData = CanvasRenderingContext2D.prototype.getImageData;
-      patched.add(w);
+      const child = apply(getWindow, frame, []);
+      if (!child || child === window) return;
+      const protocol = child.location.protocol;
+      if (protocol === 'http:' || protocol === 'https:') return; // own registration/exceptions
+      const cp = child.HTMLCanvasElement.prototype;
+      const rp = child.CanvasRenderingContext2D.prototype;
+      // Don't cache WindowProxy: navigation replaces its underlying realm.
+      for (const name of ['toDataURL', 'toBlob']) {
+        if (cp[name] !== canvasProto[name]) cp[name] = canvasProto[name];
+      }
+      if (rp.getImageData !== contextProto.getImageData) rp.getImageData = contextProto.getImageData;
+      // Child-created nested frames must get the same synchronous interception.
+      for (const property of ['contentWindow', 'contentDocument']) {
+        define(child.HTMLIFrameElement.prototype, property, getDescriptor(frameProto, property));
+      }
+      for (const name of ['appendChild', 'insertBefore', 'replaceChild']) {
+        child.Node.prototype[name] = Node.prototype[name];
+      }
+      for (const name of ['append', 'prepend', 'replaceChildren', 'insertAdjacentElement']) {
+        child.Element.prototype[name] = Element.prototype[name];
+      }
+      if (child.OffscreenCanvas && offscreenProto) {
+        child.OffscreenCanvas.prototype.convertToBlob = offscreenProto.convertToBlob;
+        child.OffscreenCanvasRenderingContext2D.prototype.getImageData = offContextProto.getImageData;
+      }
     }
-    catch (e) {
-      // cross-origin: that frame gets its own user script via allFrames
-    }
+    catch (_) { /* Opaque/cross-origin fallback frames rely on the manifest guard. */ }
   };
-  const hookGetter = (proto, prop, toWindow) => {
-    const d = Object.getOwnPropertyDescriptor(proto, prop);
-    if (!d || !d.get) {
-      return;
-    }
-    Object.defineProperty(proto, prop, {
-      ...d,
-      get: new Proxy(d.get, {
-        apply(target, self, args) {
-          const value = Reflect.apply(target, self, args);
-          patchWindow(toWindow(value));
-          return value;
-        }
-      })
+  const findFrames = node => {
+    if (!node || typeof node !== 'object') return [];
+    // Native brand checks also recognise elements from child realms.
+    try { apply(getWindow, node, []); return [node]; } catch (_) {}
+    try { return apply(queryAll, node, ['iframe']); } catch (_) {}
+    try { return apply(queryFragment, node, ['iframe']); } catch (_) {}
+    return [];
+  };
+  const patchTree = node => { for (const frame of findFrames(node)) patchFrame(frame); };
+  for (const property of ['contentWindow', 'contentDocument']) {
+    const d = getDescriptor(frameProto, property);
+    if (!d?.get) continue;
+    define(frameProto, property, {...d, get: new NativeProxy(d.get, {
+      apply(target, self, args) {
+        patchFrame(self);
+        return apply(target, self, args);
+      }
+    })});
+  }
+  for (const name of ['appendChild', 'insertBefore', 'replaceChild']) {
+    wrap(Node.prototype, name, (target, self, args) => {
+      const frames = Array.from(findFrames(args[0]));
+      const value = apply(target, self, args);
+      for (const frame of frames) patchFrame(frame);
+      return value;
     });
-  };
-  hookGetter(HTMLIFrameElement.prototype, 'contentWindow', v => v);
-  hookGetter(HTMLIFrameElement.prototype, 'contentDocument', v => v && v.defaultView);
-})();
+  }
+  for (const name of ['append', 'prepend', 'replaceChildren', 'insertAdjacentElement']) {
+    wrap(Element.prototype, name, (target, self, args) => {
+      const frames = [];
+      for (const node of args) for (const frame of findFrames(node)) frames.push(frame);
+      const value = apply(target, self, args);
+      for (const frame of frames) patchFrame(frame);
+      return value;
+    });
+  }
+  const observer = new MutationObserver(records => {
+    for (const record of records) for (const node of record.addedNodes) patchTree(node);
+  });
+  observer.observe(doc, {childList: true, subtree: true});
+}

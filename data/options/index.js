@@ -1,52 +1,46 @@
 'use strict';
-
 const toast = document.getElementById('toast');
-const say = (msg, ms = 750) => {
-  toast.textContent = msg;
-  setTimeout(() => toast.textContent = '', ms);
-};
-
-const toHost = s => {
+const status = document.getElementById('status');
+const say = text => { toast.textContent = text; };
+async function refresh() {
   try {
-    return /^[a-z]+:\/\//i.test(s) ? new URL(s).hostname : s.toLowerCase();
+    const result = await chrome.runtime.sendMessage({type: 'recheck'});
+    status.textContent = result?.detail || 'Registration status unavailable. Reload the extension and recheck.';
   }
-  catch (e) {
-    return '';
+  catch (error) { status.textContent = `Unable to check registration: ${error.message}`; }
+}
+async function save() {
+  const values = document.getElementById('list').value.split(',').map(s => s.trim()).filter(Boolean);
+  const list = values.map(FingerprintHosts.normalize);
+  const invalid = list.findIndex(host => !host);
+  if (invalid !== -1) { say(`Not saved: invalid or unsupported hostname "${values[invalid]}".`); return; }
+  try {
+    const unique = [...new Set(list)];
+    await chrome.storage.local.set({list: unique});
+    document.getElementById('list').value = unique.join(', ');
+    await refresh();
+    say('Saved. Reload affected tabs to apply the exceptions.');
   }
-};
-
-const save = () => {
-  const list = document.getElementById('list').value
-    .split(',')
-    .map(s => toHost(s.trim()))
-    .filter((h, i, l) => h && l.indexOf(h) === i);
-  document.getElementById('list').value = list.join(', ');
-  chrome.storage.local.set({list}, () => say('Saved (reload open tabs)', 1500));
-};
-
+  catch (error) { say(`Save failed: ${error.message}`); }
+}
 document.getElementById('save').addEventListener('click', save);
-window.addEventListener('keydown', e => {
-  if (e.code === 'KeyS' && (e.ctrlKey || e.metaKey)) {
-    e.preventDefault();
-    save();
+document.getElementById('recheck').addEventListener('click', refresh);
+window.addEventListener('keydown', event => {
+  if (event.code === 'KeyS' && (event.ctrlKey || event.metaKey)) { event.preventDefault(); save(); }
+});
+document.getElementById('reset').addEventListener('click', async () => {
+  if (!confirm('Reset protection settings and exceptions? Open tabs will need reloading.')) return;
+  try {
+    // Keep session seed: resetting preferences must not create a new session.
+    await chrome.storage.local.set({enabled: true, list: []});
+    document.getElementById('list').value = '';
+    await refresh();
+    say('Settings reset. Reload open tabs.');
   }
+  catch (error) { say(`Reset failed: ${error.message}`); }
 });
-
-document.getElementById('reset').addEventListener('click', e => {
-  if (e.detail === 1) {
-    say('Double-click to reset!');
-    return;
-  }
-  chrome.storage.local.clear(() => {
-    chrome.runtime.reload();
-    window.close();
-  });
-});
-
-document.getElementById('test').addEventListener('click', () => {
-  chrome.tabs.create({url: 'https://browserleaks.com/canvas'});
-});
-
-chrome.storage.local.get({list: []}, prefs => {
+document.getElementById('test').addEventListener('click', () => chrome.tabs.create({url: 'https://browserleaks.com/canvas'}));
+chrome.storage.local.get({list: []}).then(prefs => {
   document.getElementById('list').value = prefs.list.join(', ');
-});
+}).catch(error => say(error.message));
+refresh();
