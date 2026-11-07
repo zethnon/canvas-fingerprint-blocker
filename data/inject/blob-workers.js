@@ -3,7 +3,7 @@
  * their native identity. Never silently turn those into Blob/importScripts
  * workers, which would change security policy and resource resolution.
  */
-function installWorkerCanvasProtection(config, makeTransform) {
+function installWorkerCanvasProtection(config, makeTransform, report) {
   'use strict';
   const apply = Reflect.apply, descriptor = Object.getOwnPropertyDescriptor;
   const define = Object.defineProperty, NativeProxy = Proxy;
@@ -20,11 +20,13 @@ function installWorkerCanvasProtection(config, makeTransform) {
     define(proto, name, {...d, value: new NativeProxy(d.value, {apply: handler})});
   };
   wrap(rp, 'getImageData', (target, self, args) => {
+    if (report) report('worker.getImageData');
     const image = apply(target, self, args);
     transform(apply(pixels, image, []));
     return image;
   });
   wrap(cp, 'convertToBlob', (target, self, args) => {
+    if (report) report('worker.convertToBlob');
     try {
       const w = apply(width, self, []), h = apply(height, self, []);
       if (!w || !h) return apply(target, self, args);
@@ -40,7 +42,7 @@ function installWorkerCanvasProtection(config, makeTransform) {
   });
 }
 
-function installBlobWorkerProtection(config, makeTransform, installWorkerCanvas) {
+function installBlobWorkerProtection(config, makeTransform, installWorkerCanvas, report) {
   'use strict';
   if (typeof Worker !== 'function' || typeof Blob !== 'function') return;
   const NativeWorker = Worker, NativeURL = URL, NativeBlob = Blob;
@@ -90,11 +92,12 @@ function installBlobWorkerProtection(config, makeTransform, installWorkerCanvas)
       // Resolve once; original native constructor still validates non-Blob URL
       // origins, CSP and options. No cross-origin importScripts workaround.
       const url = new NativeURL(args[0], getBase());
-      if (url.protocol !== 'blob:') return construct(target, [url.href, ...args.slice(1)], newTarget);
+      if (url.protocol !== 'blob:') {if(report)report('worker.uncovered');return construct(target, [url.href, ...args.slice(1)], newTarget);}
       const blob = apply(MapGet, blobs, [url.href]);
       if (!blob || url.origin !== location.origin) {
         throw new SecurityError('Cannot safely protect this external or pre-existing Blob worker. Add a site exception if needed.', 'SecurityError');
       }
+      if(report)report('worker.created');
       const options = args[1] ?? {};
       const kind = String(options.type ?? 'classic');
       if (!['classic', 'module'].includes(kind)) throw new TypeError('Invalid Worker type');
@@ -116,6 +119,10 @@ function installBlobWorkerProtection(config, makeTransform, installWorkerCanvas)
         const read=Object.getOwnPropertyDescriptor(MessageEvent.prototype,'data').get;
         const imports=globalThis.importScripts;
         const tag=${stringify(tag)}, original=${stringify(retainedURL)};
+        const schedule=setTimeout;
+        const countMin=Math.min,makeCounts=Object.create;
+        const allowed=new Set(['getImageData','toDataURL','toBlob','offscreen.getImageData','offscreen.convertToBlob','worker.getImageData','worker.convertToBlob','worker.created','worker.uncovered']);
+        const has=Set.prototype.has;
         let initialized=false;
         const pending=[];
         const listener=async event=>{
@@ -125,8 +132,15 @@ function installBlobWorkerProtection(config, makeTransform, installWorkerCanvas)
           if(value?.tag!==tag)return;
           initialized=true;
           try{
-            installWorkerCanvasProtection(value.config,createCanvasTransform);
-            installBlobWorkerProtection(value.config,createCanvasTransform,installWorkerCanvasProtection);
+            let counts=makeCounts(null),queued=false;
+            const workerReport=value.config.radar===true?(api,n=1)=>{
+              if(!apply(has,allowed,[api]))return;
+              counts[api]=countMin(1000000,(counts[api]||0)+n);
+              if(queued)return;queued=true;
+              schedule(()=>{const snapshot=counts;counts=makeCounts(null);queued=false;apply(post,globalThis,[{tag,radar:snapshot}])},1000);
+            }:null;
+            installWorkerCanvasProtection(value.config,createCanvasTransform,workerReport);
+            installBlobWorkerProtection(value.config,createCanvasTransform,installWorkerCanvasProtection,workerReport);
             if(${stringify(kind)}==='module')await import(original);
             else apply(imports,globalThis,[original]);
             apply(remove,globalThis,['message',listener]);
@@ -159,16 +173,18 @@ function installBlobWorkerProtection(config, makeTransform, installWorkerCanvas)
       try {
         worker = construct(target, [bootURL, opts], newTarget);
         const ready = event => {
-          if (apply(data, event, [])?.tag !== tag) return;
-          apply(stop, event, []);
-          apply(remove, worker, ['message', ready]);
+          const value=apply(data,event,[]);
+          if(value?.tag!==tag)return;
+          apply(stop,event,[]);
+          if(value.radar&&report){for(const [api,n]of Object.entries(value.radar))if(Number.isInteger(n)&&n>0&&n<=1000000)report(api,n);return;}
+          if(!report)apply(remove,worker,['message',ready]);
           cleanup();
         };
         apply(add, worker, ['message', ready]);
         apply(add, worker, ['error', cleanup, {once: true}]);
         const terminate = worker.terminate;
         define(worker, 'terminate', {configurable: true, writable: true, value: new Proxy(terminate, {
-          apply(method, self, values) { if (self === worker) cleanup(); return apply(method, self, values); }
+          apply(method, self, values) { if (self === worker) {cleanup();apply(remove,worker,['message',ready]);} return apply(method, self, values); }
         })});
         apply(post, worker, [{tag, config}]);
         return worker;

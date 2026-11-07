@@ -14,6 +14,7 @@ function createCanvasTransform(seed, topOrigin) {
   let cache = new Map();
   let table = null;
   let cacheSize = 0;
+  let previousBucket = -1, previousColor = 0;
   const keys = seed.match(/.{8}/g).map(s => parseInt(s, 16) >>> 0);
   for (let i = 0; i < topOrigin.length; i++) {
     keys[i & 3] = imul(keys[i & 3] ^ topOrigin.charCodeAt(i), 16777619) >>> 0;
@@ -35,9 +36,11 @@ function createCanvasTransform(seed, topOrigin) {
     // a dense, bounded 65^3 table (~1.05 MiB), avoiding the old clear/recompute
     // cycle. RGB+1 makes zero an empty entry even for black output.
     const bucket = rb | (gb << 7) | (bb << 14);
+    if (bucket === previousBucket) return previousColor;
+    previousBucket = bucket;
     const index = rb + gb * 65 + bb * 4225;
     const cached = table ? table[index] : apply(mapGet, cache, [bucket]);
-    if (cached) return cached - 1;
+    if (cached) return (previousColor = cached - 1);
     let a = bucket >>> 0, b = 0x46505331, sum = 0;
     for (let round = 0; round < 32; round++) {
       a = (a + ((((b << 4) ^ (b >>> 5)) + b) ^ (sum + keys[sum & 3]))) >>> 0;
@@ -58,7 +61,7 @@ function createCanvasTransform(seed, topOrigin) {
     }
     if (table) table[index] = stored;
     else { apply(mapSet, cache, [bucket, stored]); cacheSize++; }
-    return color;
+    return (previousColor = color);
   };
   const transform = data => {
     const tag = apply(typedArrayTag, data, []);
@@ -106,7 +109,26 @@ function installCanvasProtection(config) {
   }
   catch (_) { /* Chromium ancestorOrigins normally supplies cross-origin roots. */ }
   const transform = createCanvasTransform(config.seed, topOrigin);
-  installBlobWorkerProtection({seed: config.seed, topOrigin}, createCanvasTransform, installWorkerCanvasProtection);
+  let report = null;
+  if (config.radar === true) {
+    const send = window.postMessage, schedule = setTimeout.bind(window);
+    const countMin = Math.min, makeCounts = Object.create;
+    const allowed = new Set(['getImageData','toDataURL','toBlob','offscreen.getImageData','offscreen.convertToBlob','worker.getImageData','worker.convertToBlob','worker.created','worker.uncovered']);
+    const has = Set.prototype.has;
+    const origin = location.origin === 'null' ? '*' : location.origin;
+    let counts = makeCounts(null), queued = false;
+    report = (api, n = 1) => {
+      if (!apply(has, allowed, [api])) return;
+      counts[api] = countMin(1000000, (counts[api] || 0) + n);
+      if (queued) return;
+      queued = true;
+      schedule(() => {
+        const snapshot = counts;counts = makeCounts(null);queued = false;
+        apply(send, window, [{type:'fingerprint-shield.activity.v1',counts:snapshot}, origin]);
+      }, 1000);
+    };
+  }
+  installBlobWorkerProtection({seed: config.seed, topOrigin, radar: config.radar === true}, createCanvasTransform, installWorkerCanvasProtection, report);
   const canvasProto = HTMLCanvasElement.prototype;
   const contextProto = CanvasRenderingContext2D.prototype;
   const offscreenProto = globalThis.OffscreenCanvas?.prototype;
@@ -154,24 +176,26 @@ function installCanvasProtection(config) {
     apply(offscreen ? native.offPut : native.put, ctx, [image, 0, 0]);
     return copy;
   };
-  const exportVia = offscreen => (target, self, args) => {
+  const exportVia = (offscreen, api) => (target, self, args) => {
+    if (report) report(api);
     // No catch-and-export-original fallback. Taint, invalid receivers, and
     // allocation failures propagate instead of exposing clean pixels.
     const copy = copyCanvas(self, offscreen);
     return apply(target, copy || self, args);
   };
-  wrap(canvasProto, 'toDataURL', exportVia(false));
-  wrap(canvasProto, 'toBlob', exportVia(false));
-  const readback = (target, self, args) => {
+  wrap(canvasProto, 'toDataURL', exportVia(false, 'toDataURL'));
+  wrap(canvasProto, 'toBlob', exportVia(false, 'toBlob'));
+  const readback = api => (target, self, args) => {
+    if (report) report(api);
     const image = apply(target, self, args); // native validation/errors first
     transform(apply(imageData, image, []));
     return image;
   };
-  wrap(contextProto, 'getImageData', readback);
-  wrap(offContextProto, 'getImageData', readback);
+  wrap(contextProto, 'getImageData', readback('getImageData'));
+  wrap(offContextProto, 'getImageData', readback('offscreen.getImageData'));
   wrap(offscreenProto, 'convertToBlob', (target, self, args) => {
     // convertToBlob is promise-based, including failures.
-    try { return exportVia(true)(target, self, args); }
+    try { return exportVia(true, 'offscreen.convertToBlob')(target, self, args); }
     catch (error) { return Promise.reject(error); }
   });
 

@@ -13,9 +13,9 @@ async function runAudit({context,worker,page,url,setPrefs}){
  await worker.evaluate(()=>chrome.storage.session.set({seed:'0123456789abcdeffedcba9876543210'}));
  async function mode(name){
   await worker.evaluate(({code})=>{source=code;currentSignature=undefined},{code:name==='v1.2'?baseline:candidate});
-  await setPrefs(worker,{enabled:name!=='off',list:[],radar:false});
+  await setPrefs(worker,{enabled:name!=='off',list:[],radar:name==='candidate-radar'});
  }
- for(const variant of ['off','v1.2','candidate']){
+ for(const variant of ['off','v1.2','candidate','candidate-radar']){
   await mode(variant);
   for(const scene of ['text','random'])for(const [width,height] of [[256,128],[1024,1024],[2048,2048]]){
    await page.goto(url);
@@ -25,7 +25,7 @@ async function runAudit({context,worker,page,url,setPrefs}){
     const c=document.createElement('canvas');c.width=width;c.height=height;const x=c.getContext('2d');
     if(scene==='random'){
      const image=x.createImageData(width,height);let s=123456789;
-     for(let i=0;i<image.data.length;i+=4){s=(Math.imul(s,1664525)+1013904223)>>>0;image.data[i]=s>>>24;image.data[i+1]=s>>>16;image.data[i+2]=s>>>8;image.data[i+3]=255}x.putImageData(image,0,0);
+     for(let i=0;i<image.data.length;i+=4){s=(Math.imul(s,1664525)+1013904223)>>>0;image.data[i]=s>>>24;image.data[i+1]=(s>>>16)&255;image.data[i+2]=(s>>>8)&255;image.data[i+3]=255}x.putImageData(image,0,0);
     }else{x.fillStyle='#fff';x.fillRect(0,0,width,height);x.fillStyle='#327';x.font='20px sans-serif';for(let i=0;i<15;i++)x.fillText('Fingerprint Shield benchmark '+i,5,25+i*27)}
     const actions={read:()=>x.getImageData(0,0,width,height),dataURL:()=>c.toDataURL(),blob:()=>new Promise((resolve,reject)=>c.toBlob(b=>b?resolve(b):reject(Error('null blob'))))};
     const out={};

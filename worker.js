@@ -1,6 +1,7 @@
 'use strict';
 const SCRIPT_ID = 'fp-main';
 const GUARD_ID = 'fp-fallback-guard';
+const RADAR_BRIDGE_ID = 'fp-radar-bridge';
 const STARTUP_GATE_ID = 41001;
 const STARTUP_ALLOW_ID = 41002;
 const ICONS = {
@@ -10,6 +11,7 @@ const ICONS = {
 // Strict hostname/IP parsing shared with options. Invalid rules must be
 // reported, not silently saved and ignored.
 importScripts('data/hosts.js');
+importScripts('data/radar.js');
 let source;
 let blobWorkerSource;
 let queue = Promise.resolve();
@@ -52,6 +54,13 @@ async function removeGuard() {
   const scripts = await chrome.scripting.getRegisteredContentScripts({ids: [GUARD_ID]});
   if (scripts.length) await chrome.scripting.unregisterContentScripts({ids: [GUARD_ID]});
 }
+async function configureRadarBridge(excludeMatches, enabled) {
+  const scripts=await chrome.scripting.getRegisteredContentScripts({ids:[RADAR_BRIDGE_ID]});
+  if(!enabled){if(scripts.length)await chrome.scripting.unregisterContentScripts({ids:[RADAR_BRIDGE_ID]});return;}
+  const script={id:RADAR_BRIDGE_ID,matches:['*://*/*'],excludeMatches,allFrames:true,matchOriginAsFallback:true,runAt:'document_start',world:'ISOLATED',js:['data/inject/radar-bridge.js'],persistAcrossSessions:true};
+  if(scripts.length)await chrome.scripting.updateContentScripts([script]);
+  else await chrome.scripting.registerContentScripts([script]);
+}
 async function armStartupGate(hosts) {
   const condition = {regexFilter: '^https?://.*', resourceTypes: ['main_frame'], requestMethods: ['get']};
   if (hosts.length) condition.excludedRequestDomains = hosts;
@@ -86,13 +95,15 @@ async function removeLegacyGate() {
   }
 }
 async function applySettings() {
-  const prefs = await chrome.storage.local.get({enabled: true, list: []});
+  const prefs = await chrome.storage.local.get({enabled: true, list: [], radar: false});
   if (!Array.isArray(prefs.list)) throw Error('Exception list must be an array of hostnames');
   const hosts = prefs.list.map(FingerprintHosts.normalize);
   const invalid = hosts.findIndex(h => !h);
   if (invalid !== -1) throw Error(`Invalid exception hostname: ${prefs.list[invalid]}`);
+  await CanvasRadar.setEnabled(!!prefs.enabled && prefs.radar === true);
   await removeLegacyGate();
   if (!prefs.enabled) {
+    await configureRadarBridge([], false);
     await removeStartupGate();
     try {
       if (chrome.userScripts && (await chrome.userScripts.getScripts({ids: [SCRIPT_ID]})).length) {
@@ -112,6 +123,8 @@ async function applySettings() {
     await chrome.userScripts.getScripts({ids: [SCRIPT_ID]});
   }
   catch (_) {
+    await configureRadarBridge([],false);
+    await CanvasRadar.setEnabled(false);
     await closeStartupGate();
     await removeGuard();
     currentSignature = undefined;
@@ -119,13 +132,14 @@ async function applySettings() {
     return;
   }
   const seed = await getSessionSeed();
-  const signature = JSON.stringify({seed, hosts});
+  const signature = JSON.stringify({seed, hosts, radar: prefs.radar === true});
   if (signature === currentSignature) return;
   source ||= await (await fetch(chrome.runtime.getURL('data/inject/main.js'))).text();
   blobWorkerSource ||= await (await fetch(chrome.runtime.getURL('data/inject/blob-workers.js'))).text();
   const excludeMatches = hosts.flatMap(FingerprintHosts.patterns);
   // Neither config nor an installer callback is left on the page's global.
-  const code = `(()=>{\n${blobWorkerSource}\n${source}\ninstallCanvasProtection(${JSON.stringify({seed})});\n})();`;
+  const code = `(()=>{\n${blobWorkerSource}\n${source}\ninstallCanvasProtection(${JSON.stringify({seed,radar:prefs.radar===true})});\n})();`;
+  await configureRadarBridge(excludeMatches,prefs.radar===true);
   await upsertGuard(excludeMatches);
   await upsertUserScript({
     id: SCRIPT_ID, matches: ['*://*/*'], excludeMatches,
@@ -140,6 +154,7 @@ function sync() {
   queue = queue.then(applySettings).catch(async error => {
     console.error(error);
     currentSignature = undefined;
+    await CanvasRadar.setEnabled(false);
     try { await closeStartupGate(); } catch (cleanupError) { console.error(cleanupError); }
     await setState('error', `Canvas setup failed: ${error.message}. Existing documents may retain earlier settings; reload after fixing.`);
   });
@@ -154,18 +169,33 @@ chrome.runtime.onInstalled.addListener(() => {
 });
 chrome.runtime.onStartup.addListener(sync);
 chrome.storage.onChanged.addListener((changes, area) => {
-  if (area === 'local' && (changes.enabled || changes.list)) sync();
+  if (area === 'local' && (changes.enabled || changes.list || changes.radar)) sync();
 });
 chrome.runtime.onMessage.addListener((message, sender, respond) => {
-  // Only extension pages may request settings/status work.
-  if (sender.id !== chrome.runtime.id || !sender.url?.startsWith(chrome.runtime.getURL(''))) return;
-  if (!['recheck', 'startup-ready'].includes(message?.type)) return;
-  sync().then(async () => respond((await chrome.storage.session.get('status')).status));
+  if(sender.id!==chrome.runtime.id)return;
+  if(message?.type==='canvas-activity'&&sender.tab){
+    queue.then(()=>CanvasRadar.record(message.counts,sender)).then(respond).catch(()=>respond(false));
+    return true;
+  }
+  // Controls/status only accept extension pages, not page-origin reporters.
+  if(!sender.url?.startsWith(chrome.runtime.getURL('')))return;
+  if(message?.type==='radar-state'){
+    (async()=>{
+      await queue;
+      const prefs=await chrome.storage.local.get({enabled:true,list:[],radar:false});
+      const {status}=await chrome.storage.session.get('status');
+      const tab=await chrome.tabs.get(message.tabId).catch(()=>({}));
+      let hostname='';try{hostname=new URL(tab.url).hostname}catch(_){}
+      const excepted=prefs.list.some(h=>hostname===h||hostname.endsWith('.'+h));
+      respond({prefs,status,data:await CanvasRadar.snapshot(message.tabId),active:{hostname,supported:/^https?:/.test(tab.url||''),excepted}});
+    })().catch(error=>respond({error:error.message}));return true;
+  }
+  if(message?.type==='radar-clear'){
+    CanvasRadar.clear(message.tabId).then(()=>respond(true));return true;
+  }
+  if(!['recheck','startup-ready'].includes(message?.type))return;
+  sync().then(async()=>respond((await chrome.storage.session.get('status')).status));
   return true;
-});
-chrome.action.onClicked.addListener(async () => {
-  const {enabled} = await chrome.storage.local.get({enabled: true});
-  await chrome.storage.local.set({enabled: !enabled});
 });
 chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   if (info.menuItemId === 'test-fingerprint') {

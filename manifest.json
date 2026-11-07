@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "version": "1.2.0",
+  "version": "1.3.0",
   "name": "Fingerprint Shield (personal)",
   "description": "Canvas readback perturbation with session and top-level-origin partitioning. Coverage limitations apply.",
   "minimum_chrome_version": "138",
@@ -27,7 +27,10 @@
   "background": {
     "service_worker": "worker.js"
   },
-  "action": {},
+  "action": {
+    "default_popup": "data/popup/index.html",
+    "default_title": "Canvas protection and activity"
+  },
   "options_ui": {
     "open_in_tab": true,
     "page": "data/options/index.html"

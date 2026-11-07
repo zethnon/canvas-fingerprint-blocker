@@ -25,7 +25,7 @@ function worker({local={},session={},denied=false}={}) {
   userScripts:users,scripting:{getRegisteredContentScripts:guard.getScripts,registerContentScripts:guard.register,updateContentScripts:guard.update,unregisterContentScripts:guard.unregister},
   action:{async setIcon(){},async setTitle(){},async setBadgeText(){},async setBadgeBackgroundColor(){},onClicked:event()},
   runtime:{id:'test',getURL:p=>'chrome-extension://test/'+p,onInstalled:event(),onStartup:event(),onMessage:event()},
-  contextMenus:{removeAll(){},create(){},onClicked:event()},tabs:{async create(){}}};
+  contextMenus:{removeAll(){},create(){},onClicked:event()},tabs:{async create(){},onRemoved:event(),onUpdated:event()}};
  const context=vm.createContext({chrome,URL,crypto:webcrypto,console:{error(){}},fetch:async url=>({text:async()=>fs.readFileSync(path.join(root,new URL(url).pathname),'utf8')})});
  context.importScripts=p=>vm.runInContext(fs.readFileSync(path.join(root,p),'utf8'),context);
  vm.runInContext(fs.readFileSync(path.join(root,'worker.js'),'utf8')+';globalThis.recheck=sync;',context);
@@ -85,4 +85,10 @@ test('disable removes startup redirect and session release rules',async()=>{
 test('site exceptions are excluded from the persistent navigation hold',async()=>{
  const w=worker({local:{list:['example.com']}});await w.sync();
  assert.deepEqual(Array.from(w.dynamicRules.get(41001).condition.excludedRequestDomains),['example.com']);
+});
+
+test('radar is opt-in and changing it updates both the bridge and injected configuration',async()=>{
+ const w=worker();await w.sync();assert.ok(!w.guards.has('fp-radar-bridge'));
+ w.local.radar=true;await w.sync();assert.ok(w.guards.has('fp-radar-bridge'));assert.match(w.scripts.get('fp-main').js[0].code, /"radar":true/);
+ w.local.radar=false;await w.sync();assert.ok(!w.guards.has('fp-radar-bridge'));
 });

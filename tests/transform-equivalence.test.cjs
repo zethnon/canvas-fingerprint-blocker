@@ -14,7 +14,7 @@ test('optimised transform preserves v1.2 output across dense-cache promotion and
  for(const seed of ['0123456789abcdeffedcba9876543210','11111111222222223333333344444444']){
   const result=h.run(`(()=>{
    const data=new Uint8ClampedArray(120000*4);let s=123456789;
-   for(let i=0;i<data.length;i+=4){s=(Math.imul(s,1664525)+1013904223)>>>0;data[i]=s>>>24;data[i+1]=s>>>16;data[i+2]=s>>>8;data[i+3]=(i%28===0)?0:255}
+   for(let i=0;i<data.length;i+=4){s=(Math.imul(s,1664525)+1013904223)>>>0;data[i]=s>>>24;data[i+1]=(s>>>16)&255;data[i+2]=(s>>>8)&255;data[i+3]=(i%28===0)?0:255}
    const a=new Uint8ClampedArray(data),b=new Uint8ClampedArray(data);
    const old=oldTransform(${JSON.stringify(seed)},'https://test.example'),next=newTransform(${JSON.stringify(seed)},'https://test.example');
    old(a);next(b);next(b);

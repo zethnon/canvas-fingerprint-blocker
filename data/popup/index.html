@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Canvas protection</title>
+  <link rel="stylesheet" href="index.css">
+</head>
+<body>
+  <h1>Canvas protection</h1>
+  <p id="site"></p>
+  <label><input id="enabled" type="checkbox"> Enable protection</label>
+  <p id="status" role="status">Checking…</p>
+  <label><input id="radar" type="checkbox"> Collect canvas activity locally</label>
+  <p class="note">Optional, off by default. Reload tabs after changing settings.</p>
+  <div class="buttons"><button id="reload">Reload this tab</button><button id="refresh">Refresh</button><button id="options">Exceptions</button></div>
+  <h2>Reported API activity</h2>
+  <p class="note">API use is not proof of tracking. Pages can influence these counts. Worker calls are attributed to their creating frame.</p>
+  <div id="activity">No reported activity.</div>
+  <button id="clear">Clear this tab’s counts</button>
+  <h2>Coverage limits</h2>
+  <p class="note">URL/shared/service workers, audio, fonts and WebGL pixel reads are not covered. This panel does not certify a page as protected.</p>
+  <script src="index.js"></script>
+</body>
+</html>

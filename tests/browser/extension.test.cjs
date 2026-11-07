@@ -236,6 +236,31 @@ test('unpacked extension integration', {timeout:360000}, async t=>{
    return {file:input.files[0].name,width:crop.width,height:crop.height,type:exported.type,nonempty:exported.size>0};
   });assert.deepEqual(result,{file:'image.png',width:50,height:40,type:'image/png',nonempty:true});
  });
+ await t.test('opt-in radar collects canvas activity, popup renders it, and disabling clears data',async()=>{
+  assert.equal((await worker.evaluate(()=>chrome.scripting.getRegisteredContentScripts())).some(x=>x.id==='fp-radar-bridge'),false);
+  await setPrefs(worker,{radar:true});await page.reload();
+  await page.evaluate(()=>{
+   sample().toDataURL();sample().getContext('2d').getImageData(0,0,1,1);
+   const c=new OffscreenCanvas(2,2);c.getContext('2d').getImageData(0,0,1,1);
+   const u=URL.createObjectURL(new Blob(["const c=new OffscreenCanvas(2,2);c.getContext('2d').getImageData(0,0,1,1);c.convertToBlob();"],{type:'text/javascript'}));
+   globalThis.radarTestWorker=new Worker(u);URL.revokeObjectURL(u);
+  });
+  const tabId=await worker.evaluate(async()=>{const tabs=await chrome.tabs.query({});return tabs.find(t=>t.url?.startsWith('http://localhost:'))?.id});
+  let snapshot;
+  for(let i=0;i<70;i++){snapshot=await worker.evaluate(id=>CanvasRadar.snapshot(id),tabId);if(Object.values(snapshot.frames).some(f=>f.counts.toDataURL>=1&&f.counts.getImageData>=1&&f.counts['worker.getImageData']>=1&&f.counts['worker.convertToBlob']>=1))break;await new Promise(r=>setTimeout(r,100))}
+  assert.ok(Object.values(snapshot.frames).some(f=>f.counts.toDataURL>=1&&f.counts.getImageData>=1&&f.counts['worker.getImageData']>=1&&f.counts['worker.convertToBlob']>=1));
+  assert.equal(snapshot.frames[0].origin,`http://localhost:${port}`);
+  await page.evaluate(()=>{radarTestWorker.terminate();delete globalThis.radarTestWorker});
+  const popup=await context.newPage();await popup.goto(worker.url().replace(/worker\.js.*/, 'data/popup/index.html'));
+  await page.bringToFront();await popup.evaluate(()=>refresh());
+  assert.match(await popup.locator('#activity').innerText(),/toDataURL/);
+  assert.equal(await popup.locator('#radar').isChecked(),true);
+  await popup.evaluate(() => document.getElementById('clear').click());
+  await new Promise(r=>setTimeout(r,150));await popup.evaluate(()=>refresh());
+  assert.equal(Object.keys((await worker.evaluate(id=>CanvasRadar.snapshot(id),tabId)).frames).length,0);
+  await popup.close();await setPrefs(worker,{radar:false});await page.reload();
+  assert.equal(Object.keys((await worker.evaluate(id=>CanvasRadar.snapshot(id),tabId)).frames).length,0);
+ });
  const beforeRestart=await read(page);
  await context.close();context=null;
  worker=await launch();await worker.evaluate(()=>sync());await waitStatus(worker,'ready');
