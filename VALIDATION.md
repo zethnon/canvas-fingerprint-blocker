@@ -1,90 +1,68 @@
 # Validation record — 2026-11-07
 
-## Scope and result
+## Current build: v1.2.0
 
-The supplied v1.0.0 ZIP is preserved in commit 8efbfb8. This change adds a
-canvas-focused v1.1.0 development build. It does not claim all six roadmap
-acceptance criteria are complete.
+**31 Node tests and 18 actual-extension Chromium checks passed.** The browser
+runner reports 19 passing tests because it also counts the enclosing integration
+case. Nothing was skipped.
 
-- Node regression suite: 22 tests passing locally and in GitHub Actions.
-- Real browser integration: **11 checks passed** (12 Node test results including
-  the enclosing integration test) in Chrome for Testing 151.0.7922.34 on GitHub
-  Actions, run [42422308100](https://github.com/zethnon/canvas-fingerprint-blocker/actions/runs/42422308100),
-  code commit d8c96c36eb45729231dec631dd7a11729278caba.
-  The suite loads the actual unpacked extension and grants its real user-script
-  permission. Local Chromium launch remains blocked by socket restrictions;
-  successful browser validation was performed remotely, not inferred from mocks.
-- BrowserLeaks, CreepJS and everyday-site compatibility: not executed here.
-- Worker canvas coverage and atomic startup seed rollover: unresolved, documented.
-- Fully adversarial fingerprint recovery: not established. Coarse colour information is
-  intentionally retained; perturbation is not a general anti-fingerprinting proof.
+- Tested code: `36dcd91abc304d7ec38b2df14a2f7fe16e9e3ae5`.
+- CI: https://github.com/zethnon/canvas-fingerprint-blocker/actions/runs/42425611338
+- Browser: Chrome for Testing 151.0.7922.34 on GitHub Actions.
+- Local Chromium cannot launch in the execution environment because of socket
+  restrictions; browser results were obtained remotely, not inferred from mocks.
+- The original supplied ZIP remains preserved in commit `8efbfb8`.
 
-## Roadmap disposition
+## Worker and startup scope
 
-| Item | Implementation | Evidence / remaining work |
+| Area | Implemented and tested | Remaining limits |
 | --- | --- | --- |
-| Reproducible tests | Node tests + actual-extension Chromium suite + CI | 22 Node tests and 11 browser checks pass |
-| Export bypass | Captured native getters, no clean fallback, captured ImageData/intrinsics | Node and real-browser getter bypass regressions pass; taint model test passes |
-| Noise model | Crop-independent, idempotent site-shifted bucket projection, top-origin partition | Previous rectangle attack no longer recovers discarded bits; coarse-feature/other attacks remain |
-| Alternative canvas paths | Main-thread OffscreenCanvas, frame insertion hooks and fallback guard | Model and real-browser blank/nested/srcdoc checks pass; other realm races and workers remain |
-| Startup/controls | In-place updates, serial settings, explicit permission/error/reload status | Registration mocks and browser reload/exception/session checks pass; startup-seed window remains |
-| Compatibility/detectability | Preserve native method descriptors/name/length; docs and browser tests | Manual websites/CreepJS and colour-format review still required |
+| Session model | Same top-level origin/session gives consistent protected results; new session changes them | Exact origin partitioning, not eTLD+1 grouping |
+| Dedicated Blob workers | Classic, module and nested workers receive the same projection before original code runs | Only Blob URLs tracked after injection; URL/shared/service workers remain uncovered |
+| Worker lifecycle/security | Immediate original-URL revocation works; retained URLs released on readiness/error/termination; no seed in fetchable bootstrap | Module messages queued during import are replayed with isTrusted=false; import.meta.url changes; CSP/Trusted Types may reject bootstrap |
+| Worker policy | Native URL worker URL identity and response CSP preserved | URL workers are deliberately not rewritten, so their canvas APIs remain clean |
+| Iframes | Blank/nested/window.frames, self-executing srcdoc and parser-created/navigated srcdoc checks pass | Other timing, sandbox, insertion and browser-version cases remain unverified |
+| Startup | Persistent GET-navigation hold is released only after current seeded registration; destination query and fragment preserved | Only navigations handled by the browser request-rule engine; already executing pages and some cache/service-worker/history paths are outside the guarantee |
+| Forms | POST navigation keeps the original method and body during startup hold | Non-GET startup responses are deliberately outside the hold |
+| User controls | Disable removes script/guard/rules; exceptions restore unmodified reads after reload | Previously loaded documents/workers keep installed hooks until reload/termination |
 
-## Important change in tradeoff
+The first marker-based startup experiment failed because Chromium ran userScripts
+before dynamic content scripts. It was removed. The current solution coordinates
+in extension/browser origin using request rules, instead of trusting page events
+or exposing a seed. The new request-rule permission is required for this hold.
 
-Readbacks now change RGB channels by up to 3 instead of sparse +/-1 changes.
-Fallback documents can receive SecurityError rather than unmodified pixels.
-Wide-gamut/HDR fidelity is not preserved. Exceptions remain the compatibility
-escape hatch and require reloading the affected documents.
+## Other regression checks
 
-## Performance observation
+- Own dimension properties cannot force clean canvas exports.
+- Native ImageData/intrinsic capture resists the tested page tampering paths.
+- Exports never catch a protection error and silently retry against clean source.
+- Crops and full-image reads agree; the demonstrated overlapping-rectangle attack
+  no longer recovers discarded information from differently noised rectangles.
+- Repeated opaque read/write loops are stable; source canvas pixels remain intact.
+- Main-thread OffscreenCanvas read/export paths are protected.
+- PNG toBlob and toDataURL agree for the tested opaque drawing.
+- No page-global config/installer or legacy hidden div is exposed.
+- Site exceptions, permission errors, queued settings, session storage lifecycle
+  and registration order are covered by Node tests and browser integration.
+- A modified Array iterator cannot replace the Blob bootstrap in the model test.
 
-A local Node VM check of a synthetic random 1024 x 1024 opaque image took roughly
-403 ms for one protected getImageData call (including the in-memory canvas mock).
-This is not a Chromium rendering benchmark. The cost is material for large images;
-real image-editor/frame-rate workloads still need measurement and may need exceptions.
+## Not established by these results
 
-## Browser checks that passed
+- Complete fingerprint blocking, undetectability or resistance to every recovery
+  attack. Coarse image information and other identifying APIs remain available.
+- URL-worker, SharedWorker or service-worker canvas protection.
+- All startup navigation paths, browser versions or iframe timing combinations.
+- Wide-gamut/HDR/float16 or transparency fidelity for image editors.
+- BrowserLeaks, CreepJS or everyday-site compatibility: not executed here.
+- Image-editor/frame-rate performance. An earlier local Node VM test on a
+  synthetic 1024 x 1024 opaque image took about 403 ms for protected getImageData,
+  including the in-memory mock. This is not a Chromium rendering benchmark.
 
-- Protection differs from disabled output; repeated reads/reloads are stable.
-- Exceptions return original output after reload; removing them restores protection.
-- Top-level and cross-origin embedded frames use the top-level-origin partition.
-- Own dimension properties cannot force a clean export.
-- Overlapping rectangles agree and opaque read/write loops stay stable.
-- Native readback in a separate verification realm confirms source preservation.
-- PNG toBlob and toDataURL exports agree on the tested opaque drawing.
-- Main-thread OffscreenCanvas read/export paths run with protection.
-- window.frames, nested blank frames and self-executing srcdoc do not return the
-  unprotected reference image in the tested insertion paths.
-- No configuration/installer global or legacy hidden div is exposed.
-- A new session produces different output after registration completes.
+Use site exceptions for incompatible or fidelity-sensitive applications. The
+extension remains a canvas-focused development build, not an anonymity guarantee.
 
-These checks do not establish complete fingerprint resistance, HDR/alpha fidelity,
-all iframe insertion/navigation races, or worker coverage.
+## Previous baseline
 
-## v1.2.0 — worker/startup work (2026-11-07)
-
-- 31 local Node tests pass, including native-loader preservation, bootstrap seed
-  absence, immediate Blob revocation/termination cleanup, iterator tampering,
-  persistent startup redirect/session-release ordering and exception handling.
-- New real-browser checks cover classic/module/nested Blob workers, native URL
-  worker CSP, startup navigation hold/query/fragment preservation and
-  parser-created/navigated srcdoc. Results are pending CI; earlier green browser
-  results above describe v1.1.0.
-- A first attempt using a non-persistent MAIN-world marker failed in real Chromium
-  because userScripts ran before dynamic content scripts. That implementation was
-  removed rather than weakening its authentication or accepting page events.
-- The replacement uses browser request rules: a persistent GET main-frame redirect
-  to an extension-origin setup page, overridden only by a session rule installed
-  after fresh seeded registration. The setup page waits for registration and
-  resumes the original HTTP(S) destination. No seed crosses the page bridge.
-- The request gate is a startup safeguard for browser-rule-managed navigations;
-  it deliberately leaves POST/form navigations untouched and cannot cover documents already executing, navigations that bypass DNR (such
-  as some service-worker/cache/history paths), disabled extensions or absent
-  injection. Those limitations must remain explicit even if happy-path CI passes.
-- Worker support is deliberately limited to tracked dedicated Blob workers.
-  URL workers, SharedWorkers and service workers remain uncovered. Replacing
-  their loaders would change response CSP, relative imports or shared identity.
-- Fallback frames deny new worker construction rather than borrow the parent's
-  Worker constructor/CSP realm. Blob workers preserve policy but can be rejected
-  by CSP/Trusted Types; original loaders are never used as a clean fallback.
+v1.1.0 passed 22 Node tests and 11 Chromium checks in run:
+https://github.com/zethnon/canvas-fingerprint-blocker/actions/runs/42422308100
+The v1.2.0 suite retains those cases and adds worker/startup/policy coverage.

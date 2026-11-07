@@ -41,11 +41,11 @@ IPv4/localhost exceptions match exactly. Invalid/IPv6 rules are rejected visibly
   including child insertion methods for nested frames. A browser content-script
   guard blocks canvas reads in fallback documents (about:blank/srcdoc/data/blob)
   when they execute without a usable seeded installer. New workers in fallback
-  frames are denied rather than constructed in the parent's CSP realm. This can break legitimate
-  frame-based image workflows; use site exceptions when appropriate.
+  frames are denied rather than constructed in the parent's CSP realm. This can
+  break legitimate frame-based image workflows; use site exceptions when appropriate.
 - Existing script registrations are updated in place. Queued preferences are not
   dropped. Permission/setup failures are surfaced in Options and the action title.
-- No audio, font, hardware, network blocking, or fingerprint radar features added.
+- No audio, font, hardware spoofing, general tracker blocklist or fingerprint radar features added.
 
 ## Important limits — do not interpret green tests as anonymity
 
@@ -76,8 +76,8 @@ IPv4/localhost exceptions match exactly. Invalid/IPv6 rules are rejected visibly
   keep it on the setup page instead of silently continuing. Disabling protection
   removes the navigation hold. This requires declarativeNetRequestWithHostAccess.
   POST/form submissions are never redirected, so those startup responses are not
-  covered by this hold. HTTP cache, service-worker responses and history restoration are not all the
-  same network path: bypasses of the browser request-rule engine and already
+  covered by this hold. HTTP cache, service-worker responses and history
+  restoration are not all the same network path: bypasses of the browser request-rule engine and already
   running documents remain outside this safeguard's guarantee.
 - **Colour conversion matters.** Canvas exports use an sRGB 8-bit copy. Wide gamut,
   float16/HDR, alpha premultiplication and WebGL drawing-buffer lifetime can produce
