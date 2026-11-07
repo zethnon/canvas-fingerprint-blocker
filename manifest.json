@@ -18,7 +18,8 @@
     "contextMenus",
     "notifications",
     "userScripts",
-    "scripting"
+    "scripting",
+    "declarativeNetRequestWithHostAccess"
   ],
   "host_permissions": [
     "*://*/*"
@@ -30,5 +31,15 @@
   "options_ui": {
     "open_in_tab": true,
     "page": "data/options/index.html"
-  }
+  },
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "startup.html"
+      ],
+      "matches": [
+        "*://*/*"
+      ]
+    }
+  ]
 }

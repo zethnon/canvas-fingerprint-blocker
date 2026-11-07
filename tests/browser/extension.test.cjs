@@ -145,15 +145,17 @@ test('unpacked extension integration', {timeout:120000}, async t=>{
   assert.deepEqual(await page.evaluate(()=>[typeof __fpsCfg,typeof installCanvasProtection,!!document.getElementById('cc-blck-fp')]),['undefined','undefined',false]);
  });
 
- await t.test('missing non-persistent session gate blocks persisted code and ignores late spoofing',async()=>{
-  await worker.evaluate(()=>chrome.scripting.unregisterContentScripts({ids:['fp-0-session-gate']}));
-  await page.reload();
-  const value=await page.evaluate(()=>{
-   const read=()=>{try{return sample().toDataURL()}catch(e){return e.name}};
-   const before=read();globalThis.__fpsSessionReadyV2=true;return [before,read()];
-  });assert.deepEqual(value,['SecurityError','SecurityError']);
-  await worker.evaluate(()=>{currentSignature=undefined;return sync()});
-  await page.reload();assert.ok((await read(page)).url.startsWith('data:image/png'));
+ await t.test('startup navigation hold waits for registration and preserves query/fragment',async()=>{
+  await worker.evaluate(()=>{
+   currentSignature=undefined;
+   return chrome.declarativeNetRequest.updateSessionRules({removeRuleIds:[41002]});
+  });
+  const target=`http://localhost:${port}/startup-check?a=1&b=x%26y&c=%23z#anchor`;
+  await page.goto(target);
+  await page.waitForURL(target,{timeout:15000});
+  assert.equal(page.url(),target);assert.ok((await read(page)).url.startsWith('data:image/png'));
+  const rules=await worker.evaluate(async()=>({dynamic:await chrome.declarativeNetRequest.getDynamicRules(),session:await chrome.declarativeNetRequest.getSessionRules()}));
+  assert.ok(rules.dynamic.some(r=>r.id===41001));assert.ok(rules.session.some(r=>r.id===41002));
  });
  const paint=`const c=new OffscreenCanvas(100,20);const x=c.getContext('2d');for(let i=0;i<100;i++){x.fillStyle='rgb('+((i*19)%256)+','+((i*37)%256)+','+((i*53)%256)+')';x.fillRect(i,0,1,20)}return [...x.getImageData(0,0,100,20).data];`;
  for(const type of ['classic','module']){

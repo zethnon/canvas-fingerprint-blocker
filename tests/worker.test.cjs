@@ -6,7 +6,7 @@ const path=require('node:path');
 const {webcrypto}=require('node:crypto');
 const {root}=require('./harness.cjs');
 function worker({local={},session={},denied=false}={}) {
- const scripts=new Map(),guards=new Map(),calls=[];
+ const scripts=new Map(),guards=new Map(),dynamicRules=new Map(),sessionRules=new Map(),calls=[];
  const event=()=>({addListener(){}});
  const storage=store=>({async get(defaults){if(typeof defaults==='string')return {[defaults]:store[defaults]};return {...defaults,...store}},async set(values){Object.assign(store,values)}});
  const registry=(map,label)=>({
@@ -16,7 +16,12 @@ function worker({local={},session={},denied=false}={}) {
   async unregister(filter){calls.push(label+'.unregister');if(!filter?.ids)map.clear();else for(const id of filter.ids)map.delete(id)}
  });
  const users=registry(scripts,'scripts'),guard=registry(guards,'guard');
- const chrome={storage:{local:storage(local),session:storage(session),onChanged:event()},
+ const updateRules=(map,label)=>async change=>{
+  calls.push(label);
+  for(const id of change.removeRuleIds||[])map.delete(id);
+  for(const rule of change.addRules||[])map.set(rule.id,rule);
+ };
+ const chrome={declarativeNetRequest:{updateDynamicRules:updateRules(dynamicRules,'dynamic.rules'),updateSessionRules:updateRules(sessionRules,'session.rules')},storage:{local:storage(local),session:storage(session),onChanged:event()},
   userScripts:users,scripting:{getRegisteredContentScripts:guard.getScripts,registerContentScripts:guard.register,updateContentScripts:guard.update,unregisterContentScripts:guard.unregister},
   action:{async setIcon(){},async setTitle(){},async setBadgeText(){},async setBadgeBackgroundColor(){},onClicked:event()},
   runtime:{id:'test',getURL:p=>'chrome-extension://test/'+p,onInstalled:event(),onStartup:event(),onMessage:event()},
@@ -24,10 +29,10 @@ function worker({local={},session={},denied=false}={}) {
  const context=vm.createContext({chrome,URL,crypto:webcrypto,console:{error(){}},fetch:async url=>({text:async()=>fs.readFileSync(path.join(root,new URL(url).pathname),'utf8')})});
  context.importScripts=p=>vm.runInContext(fs.readFileSync(path.join(root,p),'utf8'),context);
  vm.runInContext(fs.readFileSync(path.join(root,'worker.js'),'utf8')+';globalThis.recheck=sync;',context);
- return {context,chrome,local,session,scripts,guards,calls,sync:()=>context.recheck()};
+ return {context,chrome,local,session,scripts,guards,dynamicRules,sessionRules,calls,sync:()=>context.recheck()};
 }
 test('register once, update settings atomically without unregister gap',async()=>{
- const w=worker();await w.sync();assert.equal(w.scripts.size,1);assert.equal(w.guards.size,2);
+ const w=worker();await w.sync();assert.equal(w.scripts.size,1);assert.equal(w.guards.size,1);
  assert.equal(w.calls.filter(s=>s==='scripts.register').length,1);
  w.local.list=['example.com'];await w.sync();assert.ok(w.calls.includes('scripts.update'));assert.ok(!w.calls.includes('scripts.unregister'));
  assert.deepEqual(Array.from(w.scripts.get('fp-main').excludeMatches),['*://example.com/*','*://*.example.com/*']);
@@ -59,26 +64,24 @@ test('host validation rejects ignored rules and normalises supported input',()=>
  assert.deepEqual(Array.from(h.patterns('127.0.0.1')),['*://127.0.0.1/*']);
 });
 
-test('startup readiness registration never persists and follows the seed update',async()=>{
+
+test('startup navigation redirect persists but its higher-priority release is session-only',async()=>{
  const w=worker();await w.sync();
- const gate=w.guards.get('fp-0-session-gate');
- assert.equal(gate.persistAcrossSessions,false);
- assert.ok(w.calls.indexOf('scripts.register:fp-main')<w.calls.indexOf('guard.register:fp-0-session-gate'));
+ const gate=w.dynamicRules.get(41001),allow=w.sessionRules.get(41002);
+ assert.equal(gate.action.type,'redirect');assert.equal(allow.action.type,'allow');assert.ok(allow.priority>gate.priority);
+ assert.equal(gate.action.redirect.regexSubstitution,'chrome-extension://test/startup.html?target=\\0');
+ assert.deepEqual(Array.from(gate.condition.resourceTypes),['main_frame']);
+ assert.ok(w.calls.indexOf('scripts.register:fp-main')<w.calls.indexOf('session.rules'));
 });
-test('persisted code without this session gate blocks rather than using its seed',async()=>{
- const {harness}=require('./harness.cjs');
- const w=worker();await w.sync();const code=w.scripts.get('fp-main').js[0].code;
- const h=harness({protected:false});h.run(code);
- assert.equal(h.run(`(()=>{try{makeCanvas().toDataURL()}catch(e){return e.name}})()`),'SecurityError');
- // Forging a late marker cannot unlock the closed-over decision.
- h.run(`globalThis.__fpsSessionReadyV2=true`);
- assert.equal(h.run(`(()=>{try{makeCanvas().getContext('2d').getImageData(0,0,1,1)}catch(e){return e.name}})()`),'SecurityError');
+test('permission failure retains startup hold and never releases navigation',async()=>{
+ const w=worker({denied:true});await w.sync();
+ assert.equal(w.dynamicRules.size,1);assert.equal(w.sessionRules.size,0);assert.equal(w.session.status.state,'permission-required');
 });
-test('a browser-injected gate is consumed and allows current seeded protection',async()=>{
- const {harness}=require('./harness.cjs');const w=worker();await w.sync();
- const h=harness({protected:false});
- h.run(fs.readFileSync(path.join(root,'data/inject/session-gate.js'),'utf8'));
- h.run(w.scripts.get('fp-main').js[0].code);
- assert.ok(h.run(`makeCanvas().toDataURL()!==raw(makeCanvas()).join(',')`));
- assert.equal(h.run(`typeof __fpsSessionReadyV2`),'undefined');
+test('disable removes startup redirect and session release rules',async()=>{
+ const w=worker();await w.sync();w.local.enabled=false;await w.sync();
+ assert.equal(w.dynamicRules.size,0);assert.equal(w.sessionRules.size,0);
+});
+test('site exceptions are excluded from the persistent navigation hold',async()=>{
+ const w=worker({local:{list:['example.com']}});await w.sync();
+ assert.deepEqual(Array.from(w.dynamicRules.get(41001).condition.excludedRequestDomains),['example.com']);
 });

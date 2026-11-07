@@ -64,20 +64,27 @@ all iframe insertion/navigation races, or worker coverage.
 
 ## v1.2.0 — worker/startup work (2026-11-07)
 
-- 30 local Node tests pass, including native-loader preservation, bootstrap seed
+- 31 local Node tests pass, including native-loader preservation, bootstrap seed
   absence, immediate Blob revocation/termination cleanup, iterator tampering,
-  non-persistent gate registration order and late readiness-marker spoofing.
+  persistent startup redirect/session-release ordering and exception handling.
 - New real-browser checks cover classic/module/nested Blob workers, native URL
-  worker CSP, missing-session-gate denial and parser-created/navigated srcdoc.
-  Results are pending CI; earlier green browser results above describe v1.1.0.
+  worker CSP, startup navigation hold/query/fragment preservation and
+  parser-created/navigated srcdoc. Results are pending CI; earlier green browser
+  results above describe v1.1.0.
+- A first attempt using a non-persistent MAIN-world marker failed in real Chromium
+  because userScripts ran before dynamic content scripts. That implementation was
+  removed rather than weakening its authentication or accepting page events.
+- The replacement uses browser request rules: a persistent main-frame redirect
+  to an extension-origin setup page, overridden only by a session rule installed
+  after fresh seeded registration. The setup page waits for registration and
+  resumes the original HTTP(S) destination. No seed crosses the page bridge.
+- The request gate is a startup safeguard for browser-rule-managed navigations;
+  it cannot cover documents already executing, navigations that bypass DNR (such
+  as some service-worker/cache/history paths), disabled extensions or absent
+  injection. Those limitations must remain explicit even if happy-path CI passes.
 - Worker support is deliberately limited to tracked dedicated Blob workers.
   URL workers, SharedWorkers and service workers remain uncovered. Replacing
   their loaders would change response CSP, relative imports or shared identity.
-- Startup changes preserve per-site/per-session mapping. Persisted userScript
-  code denies reads and new Worker/SharedWorker creation if a non-persistent,
-  browser-injected session gate was not present when the document started. The
-  gate is registered only after the worker updates the seeded code. A late
-  page marker cannot activate the old seed. A blocked document needs reloading.
-- The browser's relative ordering of content-script and userScript document_start
-  injections is validated by CI; changed ordering is designed to deny reads rather
-  than leak the old mapping. Complete absence of injection is still outside scope.
+- Fallback frames deny new worker construction rather than borrow the parent's
+  Worker constructor/CSP realm. Blob workers preserve policy but can be rejected
+  by CSP/Trusted Types; original loaders are never used as a clean fallback.

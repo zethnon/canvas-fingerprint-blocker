@@ -40,7 +40,8 @@ IPv4/localhost exceptions match exactly. Invalid/IPv6 rules are rejected visibly
 - Parent accesses and common insertion methods patch same-origin fallback frames,
   including child insertion methods for nested frames. A browser content-script
   guard blocks canvas reads in fallback documents (about:blank/srcdoc/data/blob)
-  when they execute without a usable seeded installer. This can break legitimate
+  when they execute without a usable seeded installer. New workers in fallback
+  frames are denied rather than constructed in the parent's CSP realm. This can break legitimate
   frame-based image workflows; use site exceptions when appropriate.
 - Existing script registrations are updated in place. Queued preferences are not
   dropped. Permission/setup failures are surfaced in Options and the action title.
@@ -67,14 +68,16 @@ IPv4/localhost exceptions match exactly. Invalid/IPv6 rules are rejected visibly
   contexts, navigation and page tampering have complex timing. The fallback guard
   is defence in depth. The included blank/nested/srcdoc Chromium checks pass,
   but this repo does not claim every realm race is solved.
-- **Early startup documents can block reads.** A non-persistent content-script
-  gate is registered only after the current seeded code. Persisted code that runs
-  without that gate denies canvas readbacks and new Worker/SharedWorker creation;
-  a later page-forged marker cannot unlock it. Reload affected tabs after setup.
-  This preserves session stability instead of switching to per-document seeds.
-  We require the browser integration tests to verify normal injection order;
-  ordering changes fail closed. It cannot protect a document where Chrome never
-  injects the extension at all, or retrofit a document/worker already running.
+- **Startup navigations may briefly show an extension page.** A persistent
+  browser redirect holds non-exempt HTTP(S) main-frame requests until this
+  session's seeded registration is installed. A higher-priority session-only
+  allow rule releases them. Chrome clears that allow on browser restart.
+  The extension page opens the destination after setup; unavailable permissions
+  keep it on the setup page instead of silently continuing. Disabling protection
+  removes the navigation hold. This requires declarativeNetRequestWithHostAccess.
+  HTTP cache, service-worker responses and history restoration are not all the
+  same network path: bypasses of the browser request-rule engine and already
+  running documents remain outside this safeguard's guarantee.
 - **Colour conversion matters.** Canvas exports use an sRGB 8-bit copy. Wide gamut,
   float16/HDR, alpha premultiplication and WebGL drawing-buffer lifetime can produce
   export/readback differences. Float16 reads are projected into 8-bit RGB while

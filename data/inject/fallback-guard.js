@@ -25,4 +25,10 @@
   guard(CanvasRenderingContext2D.prototype, 'getImageData');
   guard(globalThis.OffscreenCanvas?.prototype, 'convertToBlob', true);
   guard(globalThis.OffscreenCanvasRenderingContext2D?.prototype, 'getImageData');
+  for (const name of ['Worker', 'SharedWorker']) {
+    if (typeof globalThis[name] !== 'function') continue;
+    globalThis[name] = new Proxy(globalThis[name], {
+      construct() { throw new SecurityError('Worker construction is blocked in this fallback frame', 'SecurityError'); }
+    });
+  }
 })();

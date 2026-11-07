@@ -166,15 +166,24 @@ function installCanvasProtection(config) {
   const getWindow = getDescriptor(frameProto, 'contentWindow')?.get;
   const queryAll = Element.prototype.querySelectorAll;
   const queryFragment = DocumentFragment.prototype.querySelectorAll;
+  const blockedWorkers = new WeakSet();
   const patchFrame = frame => {
     try {
       const child = apply(getWindow, frame, []);
       if (!child || child === window) return;
       const protocol = child.location.protocol;
       if (protocol === 'http:' || protocol === 'https:') return; // own registration/exceptions
-      if (globalThis.Worker) child.Worker = globalThis.Worker;
-      child.URL.createObjectURL = URL.createObjectURL;
-      child.URL.revokeObjectURL = URL.revokeObjectURL;
+      // Do not borrow the parent's Worker constructor: its creator realm/CSP
+      // may differ from the child's. Fallback frames deny new workers instead.
+      for (const name of ['Worker', 'SharedWorker']) {
+        const constructor = child[name];
+        if (typeof constructor !== 'function' || blockedWorkers.has(constructor)) continue;
+        const guarded = new NativeProxy(constructor, {
+          construct() { throw new native.SecurityError('Worker construction is blocked in this fallback frame', 'SecurityError'); }
+        });
+        blockedWorkers.add(guarded);
+        child[name] = guarded;
+      }
       const cp = child.HTMLCanvasElement.prototype;
       const rp = child.CanvasRenderingContext2D.prototype;
       // Don't cache WindowProxy: navigation replaces its underlying realm.
