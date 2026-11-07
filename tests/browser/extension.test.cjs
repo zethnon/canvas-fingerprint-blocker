@@ -29,10 +29,8 @@ async function read(page){return page.evaluate(()=>{const c=sample();return {dat
 test('unpacked extension integration', {timeout:120000}, async t=>{
  const server=http.createServer((req,res)=>{res.setHeader('Content-Type','text/html');res.end('<!doctype html><title>Local canvas fixture</title><script>'+draw+'</script>');});
  await new Promise((resolve,reject)=>{server.once('error',reject);server.listen(0,'0.0.0.0',resolve)});
- t.after(()=>new Promise(resolve=>server.close(resolve)));
  const port=server.address().port;
  const profile=await fs.mkdtemp(path.join(os.tmpdir(),'fps-browser-'));
- t.after(()=>fs.rm(profile,{recursive:true,force:true}));
  let context;
  async function launch(){
   context=await chromium.launchPersistentContext(profile,{
@@ -42,7 +40,12 @@ test('unpacked extension integration', {timeout:120000}, async t=>{
   });
   return context.serviceWorkers()[0]||context.waitForEvent('serviceworker',{timeout:15000});
  }
- t.after(async()=>{if(context)await context.close()});
+ t.after(async()=>{
+  if(context)await context.close();
+  server.closeAllConnections();
+  await new Promise(resolve=>server.close(resolve));
+  await fs.rm(profile,{recursive:true,force:true});
+ });
  let worker=await launch();
  const id=new URL(worker.url()).hostname;
  const settings=await context.newPage();
@@ -53,7 +56,13 @@ test('unpacked extension integration', {timeout:120000}, async t=>{
  await toggle.waitFor({state:'visible',timeout:10000});
  if(await toggle.getAttribute('aria-pressed')!=='true')await toggle.click();
  await settings.close();
- // The userScripts namespace may require a worker restart after permission changes.
+ // Chrome caches an unavailable userScripts namespace in an existing worker.
+ // Reload the extension after granting permission, as the onboarding says.
+ const nextWorker=context.waitForEvent('serviceworker',{timeout:15000});
+ await worker.evaluate(()=>chrome.runtime.reload()).catch(()=>{});
+ worker=await nextWorker;
+ // Verify onboarding using the actual extension options page.
+
  const options=await context.newPage();
  await options.goto(`chrome-extension://${id}/data/options/index.html`);
  await options.getByRole('button',{name:'Recheck permission and registration'}).click();
@@ -116,7 +125,7 @@ test('unpacked extension integration', {timeout:120000}, async t=>{
    let nestedUrl;try{const w=child.frames[0];w.eval(draw);nestedUrl=w.sample().toDataURL()}catch(e){nestedUrl=e.name}
    frame.remove();return {url,nestedUrl};
   },draw);
-  assert.notEqual(result.url,baseline.url);assert.notEqual(result.nestedUrl,baseline.url);
+  for(const value of [result.url,result.nestedUrl]){assert.ok(value==='SecurityError'||value.startsWith('data:image/png'));assert.notEqual(value,baseline.url);}
  });
  await t.test('self-executing srcdoc readback is protected or denied',async()=>{
   const value=await page.evaluate(draw=>new Promise(resolve=>{
@@ -125,7 +134,7 @@ test('unpacked extension integration', {timeout:120000}, async t=>{
    addEventListener('message',listener);
    f.srcdoc='<script>'+draw+';let value;try{value=sample().toDataURL()}catch(e){value=e.name};parent.postMessage({test:"srcdoc",value},"*")<\/script>';
    document.body.appendChild(f);
-  }),draw);assert.notEqual(value,baseline.url);
+  }),draw);assert.ok(value==='SecurityError'||value.startsWith('data:image/png'));assert.notEqual(value,baseline.url);
  });
  await t.test('no page-visible configuration/installer',async()=>{
   assert.deepEqual(await page.evaluate(()=>[typeof __fpsCfg,typeof installCanvasProtection,!!document.getElementById('cc-blck-fp')]),['undefined','undefined',false]);
