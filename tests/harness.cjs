@@ -2,14 +2,14 @@ const vm = require('node:vm');
 const fs = require('node:fs');
 const path = require('node:path');
 const root = path.resolve(__dirname, '..');
-const source = fs.readFileSync(path.join(root, 'data/inject/main.js'), 'utf8');
+const source = fs.readFileSync(path.join(root, 'data/inject/blob-workers.js'), 'utf8') + '\n' + fs.readFileSync(path.join(root, 'data/inject/main.js'), 'utf8');
 const mock = `
 const buffers = new WeakMap(), widths = new WeakMap(), heights = new WeakMap(), images = new WeakMap();
 class ImageData {
   constructor(data, width, height) { images.set(this, data); this.width=width;this.height=height; }
   get data() { if (!images.has(this)) throw TypeError('Illegal invocation'); return images.get(this); }
 }
-class Node { appendChild(node) { return node; } insertBefore(node) { return node; } replaceChild(node) { return node; } }
+class Node { get baseURI(){return ORIGIN+'/'} appendChild(node) { return node; } insertBefore(node) { return node; } replaceChild(node) { return node; } }
 class Element extends Node { querySelectorAll() { return []; } append() {} prepend() {} replaceChildren() {} insertAdjacentElement() {} }
 class HTMLCanvasElement extends Element {
   constructor(w=100,h=88) { super();widths.set(this,w); heights.set(this,h);buffers.set(this,new Uint8ClampedArray(w*h*4)); }

@@ -10,10 +10,10 @@ function worker({local={},session={},denied=false}={}) {
  const event=()=>({addListener(){}});
  const storage=store=>({async get(defaults){if(typeof defaults==='string')return {[defaults]:store[defaults]};return {...defaults,...store}},async set(values){Object.assign(store,values)}});
  const registry=(map,label)=>({
-  async getScripts(){if(denied&&label==='scripts')throw Error('denied');return [...map.values()]},
-  async register(values){calls.push(label+'.register');for(const s of values)map.set(s.id,s)},
-  async update(values){calls.push(label+'.update');for(const s of values)map.set(s.id,s)},
-  async unregister(){calls.push(label+'.unregister');map.clear()}
+  async getScripts(filter){if(denied&&label==='scripts')throw Error('denied');return [...map.values()].filter(s=>!filter?.ids||filter.ids.includes(s.id))},
+  async register(values){calls.push(label+'.register');calls.push(...values.map(s=>label+'.register:'+s.id));for(const s of values)map.set(s.id,s)},
+  async update(values){calls.push(label+'.update');calls.push(...values.map(s=>label+'.update:'+s.id));for(const s of values)map.set(s.id,s)},
+  async unregister(filter){calls.push(label+'.unregister');if(!filter?.ids)map.clear();else for(const id of filter.ids)map.delete(id)}
  });
  const users=registry(scripts,'scripts'),guard=registry(guards,'guard');
  const chrome={storage:{local:storage(local),session:storage(session),onChanged:event()},
@@ -21,13 +21,13 @@ function worker({local={},session={},denied=false}={}) {
   action:{async setIcon(){},async setTitle(){},async setBadgeText(){},async setBadgeBackgroundColor(){},onClicked:event()},
   runtime:{id:'test',getURL:p=>'chrome-extension://test/'+p,onInstalled:event(),onStartup:event(),onMessage:event()},
   contextMenus:{removeAll(){},create(){},onClicked:event()},tabs:{async create(){}}};
- const context=vm.createContext({chrome,URL,crypto:webcrypto,console:{error(){}},fetch:async()=>({text:async()=>fs.readFileSync(path.join(root,'data/inject/main.js'),'utf8')})});
+ const context=vm.createContext({chrome,URL,crypto:webcrypto,console:{error(){}},fetch:async url=>({text:async()=>fs.readFileSync(path.join(root,new URL(url).pathname),'utf8')})});
  context.importScripts=p=>vm.runInContext(fs.readFileSync(path.join(root,p),'utf8'),context);
  vm.runInContext(fs.readFileSync(path.join(root,'worker.js'),'utf8')+';globalThis.recheck=sync;',context);
  return {context,chrome,local,session,scripts,guards,calls,sync:()=>context.recheck()};
 }
 test('register once, update settings atomically without unregister gap',async()=>{
- const w=worker();await w.sync();assert.equal(w.scripts.size,1);assert.equal(w.guards.size,1);
+ const w=worker();await w.sync();assert.equal(w.scripts.size,1);assert.equal(w.guards.size,2);
  assert.equal(w.calls.filter(s=>s==='scripts.register').length,1);
  w.local.list=['example.com'];await w.sync();assert.ok(w.calls.includes('scripts.update'));assert.ok(!w.calls.includes('scripts.unregister'));
  assert.deepEqual(Array.from(w.scripts.get('fp-main').excludeMatches),['*://example.com/*','*://*.example.com/*']);
@@ -50,11 +50,35 @@ test('disable unregisters both own script IDs and announces reload requirement',
 });
 test('config is bundled into a closure, no page-visible global bridge',async()=>{
  const w=worker();await w.sync();const code=w.scripts.get('fp-main').js[0].code;
- assert.match(code,/^\(\(\)=>\{/);assert.ok(!code.includes('__fpsCfg'));assert.ok(!code.includes('dispatchEvent'));
+ assert.match(code,/^\(\(\)=>\{/);assert.ok(!code.includes('__fpsCfg'));assert.ok(!code.includes('cfp-json-data'));
 });
 test('host validation rejects ignored rules and normalises supported input',()=>{
  const ctx=vm.createContext({URL});vm.runInContext(fs.readFileSync(path.join(root,'data/hosts.js'),'utf8'),ctx);const h=ctx.FingerprintHosts;
  assert.equal(h.normalize('https://EXAMPLE.com/a'),'example.com');assert.equal(h.normalize('example.com.'),'example.com');
  for(const bad of ['[::1]','not a host','-bad.com','a..com','*.example.com','file://foo/','127.1','example.com:8080'])assert.equal(h.normalize(bad),'',bad);
  assert.deepEqual(Array.from(h.patterns('127.0.0.1')),['*://127.0.0.1/*']);
+});
+
+test('startup readiness registration never persists and follows the seed update',async()=>{
+ const w=worker();await w.sync();
+ const gate=w.guards.get('fp-0-session-gate');
+ assert.equal(gate.persistAcrossSessions,false);
+ assert.ok(w.calls.indexOf('scripts.register:fp-main')<w.calls.indexOf('guard.register:fp-0-session-gate'));
+});
+test('persisted code without this session gate blocks rather than using its seed',async()=>{
+ const {harness}=require('./harness.cjs');
+ const w=worker();await w.sync();const code=w.scripts.get('fp-main').js[0].code;
+ const h=harness({protected:false});h.run(code);
+ assert.equal(h.run(`(()=>{try{makeCanvas().toDataURL()}catch(e){return e.name}})()`),'SecurityError');
+ // Forging a late marker cannot unlock the closed-over decision.
+ h.run(`globalThis.__fpsSessionReadyV2=true`);
+ assert.equal(h.run(`(()=>{try{makeCanvas().getContext('2d').getImageData(0,0,1,1)}catch(e){return e.name}})()`),'SecurityError');
+});
+test('a browser-injected gate is consumed and allows current seeded protection',async()=>{
+ const {harness}=require('./harness.cjs');const w=worker();await w.sync();
+ const h=harness({protected:false});
+ h.run(fs.readFileSync(path.join(root,'data/inject/session-gate.js'),'utf8'));
+ h.run(w.scripts.get('fp-main').js[0].code);
+ assert.ok(h.run(`makeCanvas().toDataURL()!==raw(makeCanvas()).join(',')`));
+ assert.equal(h.run(`typeof __fpsSessionReadyV2`),'undefined');
 });

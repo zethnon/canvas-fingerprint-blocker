@@ -1,13 +1,10 @@
 /* Bundled by worker.js inside one closure. Never publish the seed on window. */
-function installCanvasProtection(config) {
+function createCanvasTransform(seed, topOrigin) {
   'use strict';
   const apply = Reflect.apply;
   const getDescriptor = Object.getOwnPropertyDescriptor;
-  const define = Object.defineProperty;
-  const NativeProxy = Proxy;
   const imul = Math.imul;
   const typedArrayTag = getDescriptor(Object.getPrototypeOf(Uint8Array.prototype), Symbol.toStringTag).get;
-  const imageData = getDescriptor(ImageData.prototype, 'data').get;
   const dataLength = getDescriptor(Object.getPrototypeOf(Uint8Array.prototype), 'length').get;
   const {max, min, round} = Math;
   const mapGet = Map.prototype.get;
@@ -15,18 +12,7 @@ function installCanvasProtection(config) {
   const mapClear = Map.prototype.clear;
   const cache = new Map();
   let cacheSize = 0;
-  const keys = config.seed.match(/.{8}/g).map(s => parseInt(s, 16) >>> 0);
-  // Partition third-party frames by the top-level origin, not just frame host.
-  let topOrigin = location.origin;
-  try {
-    if (location.ancestorOrigins.length) {
-      topOrigin = location.ancestorOrigins[location.ancestorOrigins.length - 1];
-    }
-    else {
-      topOrigin = top.location.origin;
-    }
-  }
-  catch (_) { /* Chromium ancestorOrigins normally supplies cross-origin roots. */ }
+  const keys = seed.match(/.{8}/g).map(s => parseInt(s, 16) >>> 0);
   for (let i = 0; i < topOrigin.length; i++) {
     keys[i & 3] = imul(keys[i & 3] ^ topOrigin.charCodeAt(i), 16777619) >>> 0;
   }
@@ -82,6 +68,29 @@ function installCanvasProtection(config) {
     return data;
   };
 
+  return transform;
+}
+
+function installCanvasProtection(config) {
+  'use strict';
+  const apply = Reflect.apply;
+  const getDescriptor = Object.getOwnPropertyDescriptor;
+  const define = Object.defineProperty;
+  const NativeProxy = Proxy;
+  const imageData = getDescriptor(ImageData.prototype, 'data').get;
+  // Partition third-party frames by the top-level origin, not just frame host.
+  let topOrigin = location.origin;
+  try {
+    if (location.ancestorOrigins.length) {
+      topOrigin = location.ancestorOrigins[location.ancestorOrigins.length - 1];
+    }
+    else {
+      topOrigin = top.location.origin;
+    }
+  }
+  catch (_) { /* Chromium ancestorOrigins normally supplies cross-origin roots. */ }
+  const transform = createCanvasTransform(config.seed, topOrigin);
+  installBlobWorkerProtection({seed: config.seed, topOrigin}, createCanvasTransform, installWorkerCanvasProtection);
   const canvasProto = HTMLCanvasElement.prototype;
   const contextProto = CanvasRenderingContext2D.prototype;
   const offscreenProto = globalThis.OffscreenCanvas?.prototype;
@@ -163,6 +172,9 @@ function installCanvasProtection(config) {
       if (!child || child === window) return;
       const protocol = child.location.protocol;
       if (protocol === 'http:' || protocol === 'https:') return; // own registration/exceptions
+      if (globalThis.Worker) child.Worker = globalThis.Worker;
+      child.URL.createObjectURL = URL.createObjectURL;
+      child.URL.revokeObjectURL = URL.revokeObjectURL;
       const cp = child.HTMLCanvasElement.prototype;
       const rp = child.CanvasRenderingContext2D.prototype;
       // Don't cache WindowProxy: navigation replaces its underlying realm.

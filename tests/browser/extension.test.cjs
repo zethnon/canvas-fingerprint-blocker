@@ -27,7 +27,14 @@ async function setPrefs(worker,values){
 async function read(page){return page.evaluate(()=>{const c=sample();return {data:[...c.getContext('2d').getImageData(0,0,100,88).data],url:c.toDataURL()}})}
 
 test('unpacked extension integration', {timeout:120000}, async t=>{
- const server=http.createServer((req,res)=>{res.setHeader('Content-Type','text/html');res.end('<!doctype html><title>Local canvas fixture</title><script>'+draw+'</script>');});
+ const server=http.createServer((req,res)=>{
+  if(req.url==='/policy-worker.js'){
+   res.setHeader('Content-Type','text/javascript');res.setHeader('Content-Security-Policy',"script-src 'none'");
+   res.end(`let blocked=false;try{importScripts('/helper.js')}catch(e){blocked=true}postMessage({blocked,path:location.pathname});`);return;
+  }
+  if(req.url==='/helper.js'){res.setHeader('Content-Type','text/javascript');res.end('globalThis.helper=true;');return;}
+  res.setHeader('Content-Type','text/html');res.end('<!doctype html><title>Local canvas fixture</title><script>'+draw+'</script>');
+ });
  await new Promise((resolve,reject)=>{server.once('error',reject);server.listen(0,'0.0.0.0',resolve)});
  const port=server.address().port;
  const profile=await fs.mkdtemp(path.join(os.tmpdir(),'fps-browser-'));
@@ -137,6 +144,63 @@ test('unpacked extension integration', {timeout:120000}, async t=>{
  await t.test('no page-visible configuration/installer',async()=>{
   assert.deepEqual(await page.evaluate(()=>[typeof __fpsCfg,typeof installCanvasProtection,!!document.getElementById('cc-blck-fp')]),['undefined','undefined',false]);
  });
+
+ await t.test('missing non-persistent session gate blocks persisted code and ignores late spoofing',async()=>{
+  await worker.evaluate(()=>chrome.scripting.unregisterContentScripts({ids:['fp-0-session-gate']}));
+  await page.reload();
+  const value=await page.evaluate(()=>{
+   const read=()=>{try{return sample().toDataURL()}catch(e){return e.name}};
+   const before=read();globalThis.__fpsSessionReadyV2=true;return [before,read()];
+  });assert.deepEqual(value,['SecurityError','SecurityError']);
+  await worker.evaluate(()=>{currentSignature=undefined;return sync()});
+  await page.reload();assert.ok((await read(page)).url.startsWith('data:image/png'));
+ });
+ const paint=`const c=new OffscreenCanvas(100,20);const x=c.getContext('2d');for(let i=0;i<100;i++){x.fillStyle='rgb('+((i*19)%256)+','+((i*37)%256)+','+((i*53)%256)+')';x.fillRect(i,0,1,20)}return [...x.getImageData(0,0,100,20).data];`;
+ for(const type of ['classic','module']){
+  await t.test(`${type} Blob worker gets the same site/session projection and keeps immediate revocation working`,async()=>{
+   const result=await page.evaluate(({paint,type})=>new Promise((resolve,reject)=>{
+    const expected=new Function(paint)();
+    const source=`onmessage=e=>postMessage({command:e.data,data:(()=>{${paint}})()});`;
+    const u=URL.createObjectURL(new Blob([source],{type:'text/javascript'}));
+    const w=new Worker(u,{type});URL.revokeObjectURL(u);
+    const timer=setTimeout(()=>{w.terminate();reject(Error('worker did not respond'))},10000);
+    w.onerror=e=>{clearTimeout(timer);w.terminate();reject(Error(e.message))};
+    w.onmessage=e=>{clearTimeout(timer);w.terminate();resolve({expected,actual:e.data.data,command:e.data.command})};
+    w.postMessage('first command');
+   }),{paint,type});assert.deepEqual(result.actual,result.expected);assert.equal(result.command,'first command');
+  });
+ }
+ await t.test('nested Blob worker inherits protection',async()=>{
+  const result=await page.evaluate(paint=>new Promise((resolve,reject)=>{
+   const expected=new Function(paint)();
+   const child=`postMessage((()=>{${paint}})());`;
+   const source=`const u=URL.createObjectURL(new Blob([${JSON.stringify(child)}],{type:'text/javascript'}));const w=new Worker(u);URL.revokeObjectURL(u);w.onmessage=e=>{postMessage(e.data);w.terminate()};w.onerror=e=>{throw Error(e.message)};`;
+   const u=URL.createObjectURL(new Blob([source],{type:'text/javascript'}));const w=new Worker(u);URL.revokeObjectURL(u);
+   const timer=setTimeout(()=>{w.terminate();reject(Error('nested worker did not respond'))},10000);
+   w.onerror=e=>{clearTimeout(timer);w.terminate();reject(Error(e.message))};
+   w.onmessage=e=>{clearTimeout(timer);w.terminate();resolve({expected,actual:e.data})};
+  }),paint);assert.deepEqual(result.actual,result.expected);
+ });
+ await t.test('URL worker retains native response CSP and URL identity',async()=>{
+  const result=await page.evaluate(()=>new Promise((resolve,reject)=>{
+   const w=new Worker('/policy-worker.js');const timer=setTimeout(()=>{w.terminate();reject(Error('URL worker did not respond'))},10000);
+   w.onerror=e=>{clearTimeout(timer);w.terminate();reject(Error(e.message))};
+   w.onmessage=e=>{clearTimeout(timer);w.terminate();resolve(e.data)};
+  }));assert.ok(result.blocked);assert.equal(result.path,'/policy-worker.js');
+ });
+ await t.test('parser-created and navigated srcdoc frame cannot export the unprotected image',async()=>{
+  const values=await page.evaluate(draw=>new Promise((resolve,reject)=>{
+   const container=document.createElement('div');document.body.appendChild(container);container.innerHTML='<iframe></iframe>';
+   const f=container.querySelector('iframe');const values=[];let step=0;
+   const timer=setTimeout(()=>{cleanup();reject(Error('srcdoc navigation did not respond'))},10000);
+   const cleanup=()=>{clearTimeout(timer);removeEventListener('message',listener);container.remove()};
+   const html=()=>'<script>'+draw+';let value;try{value=sample().toDataURL()}catch(e){value=e.name};parent.postMessage({test:"navigation",value},"*")<\/script>';
+   const listener=e=>{if(e.source!==f.contentWindow||e.data?.test!=='navigation')return;values.push(e.data.value);if(step++===0)f.srcdoc=html();else{cleanup();resolve(values)}};
+   addEventListener('message',listener);f.srcdoc=html();
+  }),draw);
+  assert.equal(values.length,2);for(const value of values){assert.ok(value==='SecurityError'||value.startsWith('data:image/png'));assert.notEqual(value,baseline.url)}
+ });
+
  const beforeRestart=await read(page);
  await context.close();context=null;
  worker=await launch();await worker.evaluate(()=>sync());await waitStatus(worker,'ready');

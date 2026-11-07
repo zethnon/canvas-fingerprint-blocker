@@ -24,8 +24,10 @@
   <p id="toast" role="status"></p>
   <h2>Coverage</h2>
   <p>Canvas and main-thread OffscreenCanvas readbacks are perturbed. Opaque/fallback
-    frames may block reads instead. Worker canvases, WebGL readPixels, audio and fonts
-    are not covered. This does not provide anonymity or prevent cookie/IP tracking.</p>
+    frames may block reads instead. Tracked dedicated Blob workers are covered; URL workers, SharedWorkers, service workers,
+    WebGL readPixels, audio and fonts are not covered. This does not provide anonymity or prevent cookie/IP tracking.</p>
+  <p>Early startup documents deny reads and new workers until you reload them after registration.
+    Session-stable results are preserved; no old seed is activated without the session gate.</p>
   <p>Colours are projected into site-shifted four-value buckets. Image-processing and HDR workflows may need an exception.</p>
   <script src="../hosts.js"></script>
   <script src="index.js"></script>

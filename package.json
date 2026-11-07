@@ -1,11 +1,15 @@
 {
   "name": "fingerprint-shield-personal",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "private": true,
   "scripts": {
     "test": "node --test tests/*.test.cjs",
     "test:browser": "node --test tests/browser/*.test.cjs"
   },
-  "engines": { "node": ">=22" },
-  "devDependencies": { "playwright": "1.62.1" }
+  "engines": {
+    "node": ">=22"
+  },
+  "devDependencies": {
+    "playwright": "1.62.1"
+  }
 }
