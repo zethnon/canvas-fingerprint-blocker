@@ -1,17 +1,50 @@
-# Validation record — 2026-11-07
+# Validation record — 2026-11-08
 
-## Current build: v1.2.0
+## Current build: v1.3.0
 
-**31 Node tests and 18 actual-extension Chromium checks passed.** The browser
-runner reports 19 passing tests because it also counts the enclosing integration
+**38 Node tests and 20 actual-extension Chromium checks passed.** The browser
+runner reports 21 passing tests because it also counts the enclosing integration
 case. Nothing was skipped.
 
-- Tested code: `36dcd91abc304d7ec38b2df14a2f7fe16e9e3ae5`.
-- CI: https://github.com/zethnon/canvas-fingerprint-blocker/actions/runs/42425611338
+- Final audit code: `f6ba4d43f03306729da64807f76610bbda095df1`.
+- CI: https://github.com/zethnon/canvas-fingerprint-blocker/actions/runs/42427774043
 - Browser: Chrome for Testing 151.0.7922.34 on GitHub Actions.
 - Local Chromium cannot launch in the execution environment because of socket
   restrictions; browser results were obtained remotely, not inferred from mocks.
 - The original supplied ZIP remains preserved in commit `8efbfb8`.
+- Performance comparison and retained-memory findings: [PERFORMANCE.md](PERFORMANCE.md).
+
+## v1.3 coverage and diagnostics
+
+- Image upload/File input, decode, crop and PNG export round-trip passed in a
+  real browser fixture. Drawing-only frame intervals stayed near 16.7 ms in the
+  measured scene. This does not establish compatibility with all editors/sites.
+- Opt-in radar collected both page and protected Blob-worker calls, rendered
+  them in the popup, cleared tab data, and stopped collection on disabling.
+  Unit checks cover opt-in registration, bounded storage/counts, navigation
+  identity, message validation and batching/rate limits.
+- URL worker canvas readback **returned the original pixel**, confirming the
+  documented gap while preserving the native worker's URL and response CSP.
+- A controlled pre-registration/startup window with a CacheStorage-served
+  document **bypassed the navigation broker and observed the preceding mapping**.
+  The test simulates missing session readiness; it does not measure how often
+  real browser starts hit that window. No safe generic worker/cache fix was
+  established within the current extension architecture.
+- BrowserLeaks and CreepJS both completed with HTTP 200 and no captured page
+  errors, once with protection off and once on. Radar was disabled for these
+  external checks. Successful execution is not a protection/privacy pass.
+- CreepJS: **0 lies off / 27 lies on**, across 13 wrapped APIs. It detected
+  object-toString/recursion behaviour on canvas/DOM/frame wrappers and explicitly
+  flagged modified getImageData pixels. The extension is detectable; optimising
+  it did not conceal those modifications. No global Function.toString override
+  was added to hide them.
+- BrowserLeaks reported database uniqueness **99.87% off / 100% on**. A novel
+  perturbed signature can be unique in that database. This result does not show
+  that protection failed to alter pixels or that tracking was prevented; it
+  certainly must not be presented as improved anonymity.
+- Selected observations without fingerprint identifiers are committed in
+  [reports/diagnostics-v1.3.json](reports/diagnostics-v1.3.json). Full audit data
+  is in the run's `canvas-audit` artifact.
 
 ## Worker and startup scope
 
@@ -53,16 +86,20 @@ or exposing a seed. The new request-rule permission is required for this hold.
 - URL-worker, SharedWorker or service-worker canvas protection.
 - All startup navigation paths, browser versions or iframe timing combinations.
 - Wide-gamut/HDR/float16 or transparency fidelity for image editors.
-- BrowserLeaks, CreepJS or everyday-site compatibility: not executed here.
-- Image-editor/frame-rate performance. An earlier local Node VM test on a
-  synthetic 1024 x 1024 opaque image took about 403 ms for protected getImageData,
-  including the in-memory mock. This is not a Chromium rendering benchmark.
+- Broad everyday-site/image-editor compatibility: only the stated fixture and
+  diagnostic sites were exercised.
+- General browsing speed, peak Chrome/GPU memory or user-machine performance.
+  The headless Chromium benchmarks in PERFORMANCE.md have explicit limits.
 
 Use site exceptions for incompatible or fidelity-sensitive applications. The
 extension remains a canvas-focused development build, not an anonymity guarantee.
 
 ## Previous baseline
 
+v1.2.0 passed 31 Node tests and 18 Chromium checks in run:
+https://github.com/zethnon/canvas-fingerprint-blocker/actions/runs/42425611338
+
 v1.1.0 passed 22 Node tests and 11 Chromium checks in run:
 https://github.com/zethnon/canvas-fingerprint-blocker/actions/runs/42422308100
-The v1.2.0 suite retains those cases and adds worker/startup/policy coverage.
+The v1.3.0 suite retains those cases and adds transform equivalence, image
+workflow and opt-in radar coverage.

@@ -1,0 +1,131 @@
+{
+  "revision": "f6ba4d43f03306729da64807f76610bbda095df1",
+  "run": "https://github.com/zethnon/canvas-fingerprint-blocker/actions/runs/42427774043",
+  "date": "2026-11-08",
+  "browser": "Chrome for Testing 151.0.7922.34",
+  "radarEnabled": false,
+  "external": [
+    {
+      "url": "https://browserleaks.com/canvas",
+      "enabled": false,
+      "state": "completed",
+      "httpStatus": 200,
+      "pageErrors": [],
+      "databaseUniqueness": "Uniqueness\\t99.87% (318 of 258037 user agents have the same signature)"
+    },
+    {
+      "url": "https://abrahamjuliot.github.io/creepjs/",
+      "enabled": false,
+      "state": "completed",
+      "httpStatus": 200,
+      "pageErrors": [],
+      "totalLies": 0,
+      "lieAPIs": [],
+      "lieDetails": {},
+      "canvasLied": false
+    },
+    {
+      "url": "https://browserleaks.com/canvas",
+      "enabled": true,
+      "state": "completed",
+      "httpStatus": 200,
+      "pageErrors": [],
+      "databaseUniqueness": "Uniqueness\\t100% (The signature is unique to our database)"
+    },
+    {
+      "url": "https://abrahamjuliot.github.io/creepjs/",
+      "enabled": true,
+      "state": "completed",
+      "httpStatus": 200,
+      "pageErrors": [],
+      "totalLies": 27,
+      "lieAPIs": [
+        "CanvasRenderingContext2D.getImageData",
+        "Element.append",
+        "Element.insertAdjacentElement",
+        "Element.prepend",
+        "HTMLCanvasElement.toBlob",
+        "HTMLCanvasElement.toDataURL",
+        "HTMLIFrameElement.contentDocument",
+        "HTMLIFrameElement.contentWindow",
+        "Node.appendChild",
+        "Node.insertBefore",
+        "Node.replaceChild",
+        "OffscreenCanvas.convertToBlob",
+        "OffscreenCanvasRenderingContext2D.getImageData"
+      ],
+      "lieDetails": {
+        "CanvasRenderingContext2D.getImageData": [
+          "failed object toString error",
+          "failed at too much recursion error",
+          "pixel data modified"
+        ],
+        "Element.append": [
+          "failed object toString error",
+          "failed at too much recursion error"
+        ],
+        "Element.insertAdjacentElement": [
+          "failed object toString error",
+          "failed at too much recursion error"
+        ],
+        "Element.prepend": [
+          "failed object toString error",
+          "failed at too much recursion error"
+        ],
+        "HTMLCanvasElement.toBlob": [
+          "failed object toString error",
+          "failed at too much recursion error"
+        ],
+        "HTMLCanvasElement.toDataURL": [
+          "failed object toString error",
+          "failed at too much recursion error"
+        ],
+        "HTMLIFrameElement.contentDocument": [
+          "failed object toString error",
+          "failed at too much recursion error"
+        ],
+        "HTMLIFrameElement.contentWindow": [
+          "failed object toString error",
+          "failed at too much recursion error"
+        ],
+        "Node.appendChild": [
+          "failed object toString error",
+          "failed at too much recursion error"
+        ],
+        "Node.insertBefore": [
+          "failed object toString error",
+          "failed at too much recursion error"
+        ],
+        "Node.replaceChild": [
+          "failed object toString error",
+          "failed at too much recursion error"
+        ],
+        "OffscreenCanvas.convertToBlob": [
+          "failed object toString error",
+          "failed at too much recursion error"
+        ],
+        "OffscreenCanvasRenderingContext2D.getImageData": [
+          "failed object toString error",
+          "failed at too much recursion error"
+        ]
+      },
+      "canvasLied": true
+    }
+  ],
+  "coverage": {
+    "urlWorker": {
+      "covered": false,
+      "returnsOriginalPixel": true
+    },
+    "simulatedCacheStorageStartup": {
+      "brokerVisited": false,
+      "previousMappingObserved": true
+    }
+  },
+  "limits": [
+    "One browser/profile/environment. No fingerprint hashes saved.",
+    "Diagnostic sites loading successfully is not a privacy pass.",
+    "BrowserLeaks uniqueness describes its database; altered signatures can be novel and unique.",
+    "CreepJS reports detectable modifications, not tracker identities or anonymity."
+  ]
+}
