@@ -1,6 +1,24 @@
 # Validation record — 2026-11-08
 
-## Current build: v1.3.0
+## Current build: v1.3.1
+
+**39 Node tests and 21 actual-extension Chromium checks passed.** Chromium
+reports 22 including the enclosing case; nothing skipped.
+
+- Tested code: `9e915072c1e6f9e8d52000fd453d186b0c8cbf55`.
+- CI: https://github.com/zethnon/canvas-fingerprint-blocker/actions/runs/42430500508
+- Recovery regression: setup error does not automatically disable protection;
+  script-generated clicks cannot invoke recovery; a real top-level button click
+  disables globally, removes request rules/registrations and opens the exact
+  original destination including query/fragment. Malformed exception preferences
+  cannot prevent disabling. Embedded pages hide/reject the recovery control.
+- Removed unused notifications permission. Workflow actions are pinned to the
+  exact v4 commit SHAs resolved from their official repositories.
+- Existing canvas tests remain green. External diagnostics/performance were not
+  rerun for this recovery/permission/CI change; the v1.3.0 observations below
+  retain their original tested revision and limits.
+
+## v1.3.0 audit baseline
 
 **38 Node tests and 20 actual-extension Chromium checks passed.** The browser
 runner reports 21 passing tests because it also counts the enclosing integration
