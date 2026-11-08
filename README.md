@@ -1,4 +1,4 @@
-# Fingerprint Shield (personal) — canvas-focused development build (v1.3.0)
+# Fingerprint Shield (personal) — canvas-focused development build (v1.3.1)
 
 A personal Chrome MV3 fork of joue-quroi/canvas-fingerprint-blocker.
 **This build is not a complete anti-tracking system or a verified anonymity tool.**
@@ -76,7 +76,11 @@ IPv4/localhost exceptions match exactly. Invalid/IPv6 rules are rejected visibly
   session's seeded registration is installed. A higher-priority session-only
   allow rule releases them. Chrome clears that allow on browser restart.
   The extension page opens the destination after setup; unavailable permissions
-  keep it on the setup page instead of silently continuing. Disabling protection
+  keep it on the setup page instead of silently continuing. **Disable protection
+  and continue** is an explicit recovery action: it turns protection off globally,
+  removes the navigation hold and opens the destination only after disable succeeds.
+  It does not run automatically or from a script-generated click, and is hidden in
+  embedded frames. Re-enable protection in the popup when ready. Disabling protection
   removes the navigation hold. This requires declarativeNetRequestWithHostAccess.
   POST/form submissions are never redirected, so those startup responses are not
   covered by this hold. HTTP cache, service-worker responses and history

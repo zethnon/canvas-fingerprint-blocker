@@ -170,6 +170,21 @@ test('unpacked extension integration', {timeout:360000}, async t=>{
   const rules=await worker.evaluate(async()=>({dynamic:await chrome.declarativeNetRequest.getDynamicRules(),session:await chrome.declarativeNetRequest.getSessionRules()}));
   assert.ok(rules.dynamic.some(r=>r.id===41001));assert.ok(rules.session.some(r=>r.id===41002));
  });
+ await t.test('startup recovery requires a click, disables globally and preserves destination',async()=>{
+  await worker.evaluate(async()=>{await chrome.storage.local.set({list:['not a host']});await sync()});
+  const target=`http://localhost:${port}/recovery?a=1&b=x%26y#anchor`;
+  await page.goto(target);await page.waitForURL(`chrome-extension://${id}/startup.html**`);
+  await page.getByRole('button',{name:'Check again',exact:true}).waitFor({state:'visible'});
+  assert.equal(await worker.evaluate(async()=>(await chrome.storage.local.get({enabled:true})).enabled),true);
+  await page.evaluate(()=>document.getElementById('continue').click());
+  assert.equal(await worker.evaluate(async()=>(await chrome.storage.local.get({enabled:true})).enabled),true);
+  await page.getByRole('button',{name:'Disable protection and continue',exact:true}).click();
+  await page.waitForURL(target);assert.equal(page.url(),target);
+  assert.equal(await worker.evaluate(async()=>(await chrome.storage.local.get('enabled')).enabled),false);
+  const rules=await worker.evaluate(async()=>({dynamic:await chrome.declarativeNetRequest.getDynamicRules(),session:await chrome.declarativeNetRequest.getSessionRules(),scripts:await chrome.userScripts.getScripts()}));
+  assert.equal(rules.dynamic.length,0);assert.equal(rules.session.length,0);assert.equal(rules.scripts.length,0);
+  await setPrefs(worker,{enabled:true,list:[]});await page.reload();
+ });
  await t.test('startup hold never redirects or converts a POST submission',async()=>{
   await worker.evaluate(()=>{currentSignature=undefined;return chrome.declarativeNetRequest.updateSessionRules({removeRuleIds:[41002]})});
   const loaded=page.waitForNavigation({waitUntil:'load'});

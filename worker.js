@@ -96,10 +96,6 @@ async function removeLegacyGate() {
 }
 async function applySettings() {
   const prefs = await chrome.storage.local.get({enabled: true, list: [], radar: false});
-  if (!Array.isArray(prefs.list)) throw Error('Exception list must be an array of hostnames');
-  const hosts = prefs.list.map(FingerprintHosts.normalize);
-  const invalid = hosts.findIndex(h => !h);
-  if (invalid !== -1) throw Error(`Invalid exception hostname: ${prefs.list[invalid]}`);
   await CanvasRadar.setEnabled(!!prefs.enabled && prefs.radar === true);
   await removeLegacyGate();
   if (!prefs.enabled) {
@@ -116,6 +112,10 @@ async function applySettings() {
     await setState('disabled', 'Canvas protection disabled for new documents. Reload open tabs to remove existing hooks.');
     return;
   }
+  if (!Array.isArray(prefs.list)) throw Error('Exception list must be an array of hostnames');
+  const hosts = prefs.list.map(FingerprintHosts.normalize);
+  const invalid = hosts.findIndex(h => !h);
+  if (invalid !== -1) throw Error(`Invalid exception hostname: ${prefs.list[invalid]}`);
   await armStartupGate(hosts);
   // Check availability by awaiting the result as well as handling sync throws.
   try {

@@ -92,3 +92,8 @@ test('radar is opt-in and changing it updates both the bridge and injected confi
  w.local.radar=true;await w.sync();assert.ok(w.guards.has('fp-radar-bridge'));assert.match(w.scripts.get('fp-main').js[0].code, /"radar":true/);
  w.local.radar=false;await w.sync();assert.ok(!w.guards.has('fp-radar-bridge'));
 });
+
+test('disabling protection recovers even with invalid saved exceptions',async()=>{
+ const w=worker();await w.sync();w.local.list=['not a host'];await w.sync();assert.equal(w.session.status.state,'error');
+ w.local.enabled=false;await w.sync();assert.equal(w.session.status.state,'disabled');assert.equal(w.dynamicRules.size,0);assert.equal(w.sessionRules.size,0);assert.equal(w.scripts.size,0);assert.equal(w.guards.size,0);
+});

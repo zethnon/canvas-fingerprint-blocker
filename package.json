@@ -1,6 +1,6 @@
 {
   "name": "fingerprint-shield-personal",
-  "version": "1.3.0",
+  "version": "1.3.1",
   "private": true,
   "scripts": {
     "test": "node --test tests/*.test.cjs",
