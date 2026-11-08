@@ -1,4 +1,4 @@
-# Fingerprint Shield (personal) — canvas-focused development build (v1.2.0)
+# Fingerprint Shield (personal) — canvas-focused development build (v1.3.0)
 
 A personal Chrome MV3 fork of joue-quroi/canvas-fingerprint-blocker.
 **This build is not a complete anti-tracking system or a verified anonymity tool.**
@@ -13,8 +13,9 @@ A personal Chrome MV3 fork of joue-quroi/canvas-fingerprint-blocker.
 6. Reload existing web tabs. The **R** badge is a persistent reload reminder. It is
    not a tracker count, per-page verification, or proof of complete protection.
 
-Clicking the extension icon toggles registration for future documents. Previously
-installed hooks remain until those documents reload. Exceptions include subdomains;
+Click the extension icon to open the protection/activity popup. Its **Enable
+protection** switch changes registration for future documents. Previously installed
+hooks remain until those documents reload. Exceptions include subdomains;
 IPv4/localhost exceptions match exactly. Invalid/IPv6 rules are rejected visibly.
 
 ## What changed from the baseline
@@ -32,7 +33,8 @@ IPv4/localhost exceptions match exactly. Invalid/IPv6 rules are rejected visibly
   third parties get different mappings under different top-level origins. This is
   exact origin partitioning, not public-suffix/eTLD+1 grouping.
 - Seed/config/installer are enclosed in one registered script, with no page-global
-  configuration variable, DOM bridge, fake response header, or page-event trust.
+  configuration variable, DOM settings bridge or fake response header. Page events
+  never configure protection; the optional radar treats page reports as untrusted.
 - Main-thread OffscreenCanvas 2D readbacks and convertToBlob are wrapped.
 - Tracked dedicated Blob workers get protected before their original code runs.
   Configuration is sent through captured native messaging, never baked into a
@@ -45,7 +47,8 @@ IPv4/localhost exceptions match exactly. Invalid/IPv6 rules are rejected visibly
   break legitimate frame-based image workflows; use site exceptions when appropriate.
 - Existing script registrations are updated in place. Queued preferences are not
   dropped. Permission/setup failures are surfaced in Options and the action title.
-- No audio, font, hardware spoofing, general tracker blocklist or fingerprint radar features added.
+- An optional local canvas activity radar is available in the popup. No audio,
+  font, hardware spoofing or general tracker blocklist is included.
 
 ## Important limits — do not interpret green tests as anonymity
 
@@ -77,17 +80,43 @@ IPv4/localhost exceptions match exactly. Invalid/IPv6 rules are rejected visibly
   removes the navigation hold. This requires declarativeNetRequestWithHostAccess.
   POST/form submissions are never redirected, so those startup responses are not
   covered by this hold. HTTP cache, service-worker responses and history
-  restoration are not all the same network path: bypasses of the browser request-rule engine and already
-  running documents remain outside this safeguard's guarantee.
+  restoration are not all the same network path. The audit **confirmed a
+  CacheStorage service-worker response bypass**: it could execute using the
+  preceding registration before refresh. Already running documents also remain
+  outside this safeguard's guarantee.
 - **Colour conversion matters.** Canvas exports use an sRGB 8-bit copy. Wide gamut,
   float16/HDR, alpha premultiplication and WebGL drawing-buffer lifetime can produce
   export/readback differences. Float16 reads are projected into 8-bit RGB while
   preserving alpha. Use exceptions for fidelity-sensitive editing applications.
 - **Export cost is proportional to pixel count**, including a full-size copy and
-  CPU readback. A bounded 4096-bucket cache avoids unbounded retention. Avoid this
-  build on high-frequency image-processing workloads without measuring overhead.
+  CPU readback. A small colour Map promotes after 4096 buckets to a bounded
+  65^3 Uint32 table (~1.05 MiB per protected realm that uses high-colour readback).
+  It stores transformed colours, not source images. Repeated-colour reads use a
+  one-entry hot cache. Avoid high-frequency image-processing workloads without
+  measuring overhead; see PERFORMANCE.md.
 - No protection for WebGL readPixels, WebGPU, audio, fonts, cookies, account logins,
   IP addresses or other browser signals. No stealth or undetectability guarantee.
+
+## Optional canvas radar
+
+Open the popup, enable **Collect canvas activity locally**, then reload the tab.
+Use **Refresh** to inspect counts for getImageData, exports, main-thread
+OffscreenCanvas and tracked Blob workers. The popup also labels observed URL
+worker creation as uncovered. It does not monitor WebGL/audio/fonts or all
+SharedWorker/service-worker activity.
+
+- Disabled by default; no reporting bridge, timers or counters are installed in
+  new page documents while disabled. Already loaded hooks require a reload.
+- Counts and frame origins stay in extension session storage; no seeds, full
+  page URLs or telemetry are recorded. No network reporting is added.
+- Reports are batched (about once per second per reporting realm). Retention is
+  bounded to 30 tabs / 20 frames per tab. Navigation/tab close, Clear, disabling
+  collection, or browser shutdown clear the relevant counters.
+- Reports are **best effort and page-influenceable**. Pages can forge/suppress
+  their own activity. Short-lived documents/workers can close before a batch
+  arrives. Frame identity comes from Chrome; worker activity is attributed to
+  its creating frame. Counts describe attempted API calls, including calls
+  that throw; they are not a tracker verdict or a protection guarantee.
 
 ## Tests
 
@@ -118,3 +147,15 @@ For manual checks, compare this extension enabled/disabled in the same profile:
 
 CreepJS findings are diagnostics. Fewer detected modifications are not proof of
 better privacy, and a changed canvas hash is not proof tracking is prevented.
+
+The optional audit uses the same runner for unprotected/v1.2/current comparisons:
+
+```sh
+CANVAS_AUDIT=1 CANVAS_EXTERNAL=0 npm run test:browser
+# Set CANVAS_EXTERNAL=1 to also visit BrowserLeaks and CreepJS once off/on.
+```
+
+Routine CI does not contact those diagnostic sites. Commit markers `[bench]` and
+`[audit]` explicitly enable local-only or external diagnostics respectively. The
+`canvas-audit` Actions artifact contains timing, retained JS memory deltas and
+coverage findings; it deliberately omits fingerprint identifiers.

@@ -38,3 +38,17 @@ test('tab and frame retention is bounded',async()=>{
  for(let frame=0;frame<25;frame++){f.tick();await f.radar.record({toBlob:1},{...sender,tab:{id:34},frameId:frame})}
  assert.equal(Object.keys((await f.radar.snapshot(34)).frames).length,20);
 });
+test('isolated bridge rejects foreign/malformed reports and rate-limits valid packets',async()=>{
+ const sent=[];let listener,now=1000;
+ const window={};
+ const c=vm.createContext({window,Date:{now:()=>now},addEventListener:(name,fn)=>{listener=fn},chrome:{runtime:{async sendMessage(value){sent.push(value)}}}});
+ vm.runInContext(fs.readFileSync(path.resolve(__dirname,'../data/inject/radar-bridge.js'),'utf8'),c);
+ const packet={type:'fingerprint-shield.activity.v1',counts:{toDataURL:2,unknown:9,toBlob:Infinity}};
+ listener({source:{},data:packet});assert.equal(sent.length,0);
+ listener({source:window,data:{...packet,counts:{toBlob:1000001}}});assert.equal(sent.length,0);
+ listener({source:window,data:packet});assert.equal(sent.length,1);
+ assert.equal(sent[0].counts.toDataURL,2);assert.equal(Object.keys(sent[0].counts).length,1);
+ listener({source:window,data:packet});assert.equal(sent.length,1);
+ now+=1000;listener({source:window,data:packet});assert.equal(sent.length,2);
+ assert.ok(!JSON.stringify(sent).includes('seed'));
+});
