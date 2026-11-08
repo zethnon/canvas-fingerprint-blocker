@@ -1,3 +1,6 @@
+> **EXPERIMENT ONLY — startup redirects fail in the tested browser. Do not install.**
+> See [STARTUP-EXPOSURE.md](STARTUP-EXPOSURE.md) for findings and the tested v1.3.1 download.
+
 # Fingerprint Shield (personal) — canvas-focused development build (v1.3.1)
 
 A personal Chrome MV3 fork of joue-quroi/canvas-fingerprint-blocker.

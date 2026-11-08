@@ -1,0 +1,26 @@
+{
+  "revision": "167522e4588b289d23989f1c4201ad1465de9952",
+  "run": "https://github.com/zethnon/canvas-fingerprint-blocker/actions/runs/42430737693",
+  "browser": "Chrome for Testing 151.0.7922.34",
+  "interpretation": "Diagnostic completed; dynamic URL compatibility failed. Not a passing release/protection test.",
+  "observations": {
+    "experimental": true,
+    "dynamicURL": true,
+    "runtimeUsesDynamicId": true,
+    "staticResourceProbe": {
+      "error": "TypeError"
+    },
+    "freshBroker": {
+      "destinationPreserved": false,
+      "errorCode": "ERR_BLOCKED_BY_CLIENT"
+    },
+    "resourceIdRotated": true,
+    "persistedOldDynamicURL": {
+      "destinationPreserved": false,
+      "errorCode": "ERR_BLOCKED_BY_CLIENT"
+    }
+  },
+  "notes": [
+    "Selected fields transcribed from the diagnostic CI log; no extension IDs retained."
+  ]
+}
